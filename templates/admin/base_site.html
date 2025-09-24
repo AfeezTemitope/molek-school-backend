@@ -1,0 +1,17 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}MOLEK ADMINISTRATION{% endblock %}
+
+{% block branding %}
+<h1 id="site-name">
+  <a href="{% url 'admin:index' %}">
+    <img src="{% static 'logo.webp' %}" alt="Molek Schools" style="height: 32px; margin-right: 8px; vertical-align: middle; filter: brightness(1.1);">
+    MOLEK ADMINISTRATION
+  </a>
+</h1>
+{% endblock %}
+
+{% block extrastyle %}
+<link rel="stylesheet" type="text/css" href="{% static 'admin/base.css' %}" />
+{% endblock %}

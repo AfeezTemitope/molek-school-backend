@@ -1,0 +1,319 @@
+/* static/admin/base.css */
+
+/* ==============================
+   GLOBAL BACKGROUND & TEXT
+   ============================== */
+body {
+    background-color: #f8f9fa !important; /* Soft white */
+    color: #333 !important;
+}
+
+/* ==============================
+   HEADER — DEEP BLUE
+   ============================== */
+#header {
+    background-color: #0A2463 !important; /* Deep Navy Blue */
+    border-bottom: none !important;
+    box-shadow: 0 4px 8px rgba(10, 36, 99, 0.15) !important;
+}
+
+#header a,
+#header a:hover {
+    color: white !important;
+    text-decoration: none !important;
+}
+
+/* ==============================
+   SIDEBAR — LIGHTER BLUE
+   ============================== */
+#sidebar {
+    background-color: #1A3A7F !important; /* Medium Blue */
+    color: #e0e0e0 !important;
+    border-right: 1px solid #2a4a9f !important;
+}
+
+#sidebar a {
+    color: #e0e0e0 !important;
+    text-decoration: none !important;
+}
+
+#sidebar a:hover {
+    background-color: #2a4a9f !important;
+    color: white !important;
+    border-radius: 4px !important;
+}
+
+/* ==============================
+   MAIN CONTENT — WHITE CARDS
+   ============================== */
+#content {
+    background-color: white !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+    border-radius: 12px !important;
+    margin: 20px !important;
+    padding: 30px !important;
+}
+
+/* ==============================
+   BUTTONS — BLUE ON WHITE
+   ============================== */
+button[type="submit"],
+input[type="submit"],
+input[type="button"],
+button.default,
+button[type="button"] {
+    background-color: #0A2463 !important;
+    border-color: #0A2463 !important;
+    color: white !important;
+    border-radius: 6px !important;
+    padding: 8px 16px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 4px rgba(10, 36, 99, 0.2) !important;
+    transition: all 0.2s ease !important;
+}
+
+button[type="submit"]:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover,
+button.default:hover,
+button[type="button"]:hover {
+    background-color: #081E50 !important;
+    border-color: #081E50 !important;
+    box-shadow: 0 4px 8px rgba(10, 36, 99, 0.3) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ==============================
+   LINKS — BLUE
+   ============================== */
+a {
+    color: #0A2463 !important;
+    text-decoration: none !important;
+}
+
+a:hover {
+    color: #081E50 !important;
+    text-decoration: underline !important;
+}
+
+/* ==============================
+   TABLES — CLEAN WHITE
+   ============================== */
+table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin-bottom: 20px !important;
+}
+
+th {
+    background-color: #f1f5f9 !important; /* Very light blue-gray */
+    color: #1a3a7f !important;
+    font-weight: 600 !important;
+    padding: 12px !important;
+    text-align: left !important;
+    border-bottom: 1px solid #e0e0e0 !important;
+}
+
+td {
+    padding: 12px !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+}
+
+tr:hover {
+    background-color: #f8f9fa !important;
+}
+
+/* ==============================
+   FORMS — CLEAN INPUTS
+   ============================== */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+textarea,
+select {
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    padding: 10px !important;
+    font-size: 14px !important;
+    color: #333 !important;
+    background-color: white !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.05) !important;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+    border-color: #0A2463 !important;
+    box-shadow: 0 0 0 2px rgba(10, 36, 99, 0.25) !important;
+    outline: none !important;
+}
+
+/* ==============================
+   FIELDSETS & WIDGETS
+   ============================== */
+fieldset {
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    margin-bottom: 20px !important;
+}
+
+legend {
+    font-weight: 600 !important;
+    color: #0A2463 !important;
+    padding: 0 8px !important;
+    background-color: white !important;
+}
+
+/* ==============================
+   MESSAGES — BLUE
+   ============================== */
+ul.messagelist li {
+    background-color: #e6f0ff !important;
+    border-left: 4px solid #0A2463 !important;
+    color: #0A2463 !important;
+    padding: 12px 16px !important;
+    margin-bottom: 12px !important;
+}
+
+/* ==============================
+   CHANGE LIST — ACTION BUTTONS
+   ============================== */
+.actions select,
+.actions input[type="submit"] {
+    background-color: #0A2463 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 4px !important;
+    padding: 6px 12px !important;
+    margin-right: 8px !important;
+}
+
+.actions select {
+    background-color: white !important;
+    color: #333 !important;
+    border: 1px solid #d1d5db !important;
+}
+
+/* ==============================
+   LOGIN PAGE — BLUE & WHITE
+   ============================== */
+.login {
+    background-color: white !important;
+    border-radius: 16px !important;
+    box-shadow: 0 12px 30px rgba(10, 36, 99, 0.1) !important;
+    padding: 40px !important;
+    max-width: 400px !important;
+    margin: 80px auto !important;
+    text-align: center !important;
+}
+
+.login h1 {
+    color: #0A2463 !important;
+    margin-bottom: 30px !important;
+    font-size: 24px !important;
+}
+
+.login .submit-row {
+    margin-top: 24px !important;
+}
+
+.login .submit-row input {
+    background-color: #0A2463 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 12px 24px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    width: 100% !important;
+    margin-top: 16px !important;
+}
+
+.login .submit-row input:hover {
+    background-color: #081E50 !important;
+}
+
+/* ==============================
+   PAGE TITLE — BLUE
+   ============================== */
+h1 {
+    color: #0A2463 !important;
+    font-weight: 700 !important;
+    margin-bottom: 20px !important;
+}
+
+/* ==============================
+   FILTER SIDEBAR — BLUE
+   ============================== */
+#changelist-filter {
+    background-color: #f8f9fa !important;
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    margin-bottom: 20px !important;
+}
+
+#changelist-filter h2 {
+    color: #0A2463 !important;
+    border-bottom: 1px solid #e0e0e0 !important;
+    padding-bottom: 8px !important;
+}
+
+#changelist-filter ul {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+#changelist-filter li {
+    margin-bottom: 8px !important;
+}
+
+#changelist-filter a {
+    color: #0A2463 !important;
+    text-decoration: none !important;
+}
+
+#changelist-filter a:hover {
+    color: #081E50 !important;
+    text-decoration: underline !important;
+}
+
+/* ==============================
+   DATE PICKER / CALENDAR — BLUE
+   ============================== */
+.calendar {
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05) !important;
+}
+
+.calendar caption {
+    background-color: #0A2463 !important;
+    color: white !important;
+    font-weight: 600 !important;
+    padding: 8px !important;
+}
+
+.calendar td {
+    border: 1px solid #e0e0e0 !important;
+}
+
+.calendar td.today {
+    background-color: #e6f0ff !important;
+    border-color: #0A2463 !important;
+}
+
+.calendar td a {
+    color: #0A2463 !important;
+    font-weight: 600 !important;
+}
+
+.calendar td a:hover {
+    background-color: #e6f0ff !important;
+    border-radius: 4px !important;
+}
