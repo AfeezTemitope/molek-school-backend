@@ -32,7 +32,7 @@ variables
 # Local settings
 local_settings.py
 
-*/migrations/*
+
 
 
 # Media and uploads
