@@ -22,7 +22,7 @@ from users.views import CustomTokenObtainPairView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-
+    path('molek/', include('content.urls')),
     path('molek/users/', include('users.urls')),
 
 ]
