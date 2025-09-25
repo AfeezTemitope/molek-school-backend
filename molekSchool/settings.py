@@ -12,8 +12,6 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 from decouple import config
-from django.contrib.auth import get_user_model
-from django.db.utils import OperationalError
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -206,33 +204,4 @@ MEDIA_URL = '/media/'
 # Cloudinary Storage
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
-# --- Auto-create superuser on deploy ---
-def create_superuser_on_deploy():
-    User = get_user_model()
-    username = config("DJANGO_SUPERUSER_USERNAME", default=None)
-    email = config("DJANGO_SUPERUSER_EMAIL", default=None)
-    password = config("DJANGO_SUPERUSER_PASSWORD", default=None)
-
-    if username and email and password:
-        try:
-            if not User.objects.filter(username=username).exists():
-                User.objects.create_superuser(
-                    username=username,
-                    email=email,
-                    password=password
-                )
-                print(f"✅ Superuser '{username}' created successfully.")
-            else:
-                print(f"ℹ️ Superuser '{username}' already exists.")
-        except OperationalError:
-            # Happens during first migrate when DB isn’t ready yet
-            print("⚠️ Database not ready, skipping superuser creation.")
-    else:
-        print("⚠️ Superuser env vars not set, skipping creation.")
-
-# Call it after migrations are applied
-try:
-    create_superuser_on_deploy()
-except Exception as e:
-    print(f"⚠️ Skipping superuser creation: {e}")
 

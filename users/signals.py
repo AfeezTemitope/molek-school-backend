@@ -1,9 +1,10 @@
-# users/signals.py
-
+from django.contrib.auth import get_user_model
+from django.db.models.signals import post_migrate
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import Student
 import logging
+from decouple import config
 
 logger = logging.getLogger(__name__)
 
@@ -28,3 +29,31 @@ def send_student_credentials_to_parent(sender, instance, created, **kwargs):
 
         # ✅ Clear temp password after use
         instance._raw_password = None
+
+@receiver(post_migrate)
+def create_superuser(sender, **kwargs):
+    # Only run once, when the auth app finishes migrating
+    if sender.name != "django.contrib.auth":
+        return
+
+    if config("DJANGO_ENV") != "prod":
+        logger.info("Skipping superuser creation (not production).")
+        return
+
+    User = get_user_model()
+    username = config("DJANGO_SUPERUSER_USERNAME")
+    email = config("DJANGO_SUPERUSER_EMAIL")
+    password = config("DJANGO_SUPERUSER_PASSWORD")
+
+    if username and email and password:
+        if not User.objects.filter(username=username).exists():
+            User.objects.create_superuser(
+                username=username,
+                email=email,
+                password=password
+            )
+            logger.info(f"✅ Superuser '{username}' created successfully.")
+        else:
+            logger.info(f"ℹ️ Superuser '{username}' already exists.")
+    else:
+        logger.warning("⚠️ Superuser env vars not set, skipping creation.")
