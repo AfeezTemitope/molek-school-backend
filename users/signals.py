@@ -32,14 +32,11 @@ def send_student_credentials_to_parent(sender, instance, created, **kwargs):
 
 @receiver(post_migrate)
 def create_superuser(sender, **kwargs):
-    # Only run once, when the auth app finishes migrating
     if sender.name != "django.contrib.auth":
         return
-
     if config("DJANGO_ENV") != "prod":
         logger.info("Skipping superuser creation (not production).")
         return
-
     User = get_user_model()
     username = config("DJANGO_SUPERUSER_USERNAME")
     email = config("DJANGO_SUPERUSER_EMAIL")

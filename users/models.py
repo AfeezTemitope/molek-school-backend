@@ -72,48 +72,39 @@ class Student(models.Model):
         return f"{self.admission_number} - {self.first_name} {self.last_name}"
 
     def save(self, *args, **kwargs):
-        # Only run on creation (not on update)
-        if not self.pk:
+        if not self.pk:  # Only on creation
             year = timezone.now().year
             class_name = self.class_name.strip().upper()
 
             # Get or create class counter
             class_counter, created = ClassCounter.objects.get_or_create(class_name=class_name)
-            class_sn = class_counter.count + 1  # Serial per class
-            global_sn = Student.objects.count() + 1  # Global serial across all students
-            global_sn_padded = str(global_sn).zfill(3)  # e.g., 001, 042
+            class_sn = class_counter.count + 1
+            global_sn = Student.objects.count() + 1
+            global_sn_padded = str(global_sn).zfill(3)
 
-            # ✅ Generate admission number in format: YYYY/CLASS-SN/GEN-SN
+            # Generate admission number
             self.admission_number = f"{year}/{class_sn}/{global_sn_padded}"
 
-            # ✅ Increment class counter
+            # Increment class counter
             class_counter.count += 1
             class_counter.save()
 
-            # ✅ Generate 6-digit alphanumeric password
-            chars = string.ascii_uppercase + string.digits
-            raw_password = ''.join(random.choice(chars) for _ in range(6))
+            # ✅ USE LAST NAME AS PASSWORD
+            raw_password = self.last_name  # ← This is now the password
 
-            # ✅ CRITICAL FIX: Use admission_number as username — this is what parents will log in with
-            username = self.admission_number  # ← THIS IS THE FIX
-
-            # Optional: generate email from parent_email or fallback
-            email = self.parent_email or f"{self.first_name.lower().replace(' ', '')}.{self.last_name.lower().replace(' ', '')}@student.edu"
-
-            # ✅ Create the user — username = admission_number
+            # ✅ Create user with admission_number as username
             user = UserProfile.objects.create_user(
-                username=username,
+                username=self.admission_number,
                 first_name=self.first_name,
                 last_name=self.last_name,
-                email=email,
-                password=raw_password,
+                email=self.parent_email or None,
+                password=raw_password,  # Django hashes this automatically
                 role='student',
                 is_active=True,
             )
 
-            # ✅ Link student to user
             self.user = user
-            self._raw_password = raw_password  # Store for signal (not saved to DB)
+            self._raw_password = raw_password  # For signal (if needed later)
 
         super().save(*args, **kwargs)
 

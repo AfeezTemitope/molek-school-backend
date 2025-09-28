@@ -24,43 +24,32 @@ class UserProfileAdmin(BaseUserAdmin):
             return qs.filter(is_superuser=False)
         return qs
 
-
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = (
-        'admission_number', 'first_name', 'last_name', 'class_name',
-        'parent_phone', 'created_by', 'created_at', 'user'
-    )
-    list_filter = ('class_name', 'created_by', 'created_at')
-    search_fields = ('admission_number', 'first_name', 'last_name', 'parent_phone')
-    readonly_fields = ('admission_number', 'created_by', 'created_at', 'updated_at', 'user')
     fieldsets = (
         ('Personal Info', {
-            'fields': ('first_name', 'last_name', 'gender', 'age', 'address', 'class_name')
+            'fields': ('first_name', 'last_name', 'gender', 'age', 'address')
         }),
         ('Parent Info', {
-            'fields': ('parent_phone', 'parent_email')
+            'fields': ('parent_phone', 'parent_email'),
         }),
         ('Media', {
             'fields': ('passport_url',)
         }),
         ('System Info', {
-            'fields': ('admission_number', 'created_by', 'created_at', 'updated_at', 'is_active', 'user'),
-            'classes': ('collapse',)
+            'fields': ('admission_number', 'created_by', 'created_at', 'updated_at', 'is_active'),
+            'classes': ('collapse',),
         }),
     )
 
-    def save_model(self, request, obj, form, change):
-        if not obj.created_by:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
+    list_display = ['admission_number', 'first_name', 'last_name', 'class_name']
+    readonly_fields = ['admission_number', 'created_at', 'updated_at']
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if not request.user.is_superuser:
-            return qs.filter(created_by=request.user)
-        return qs
-
+        if request.user.role in ['superadmin', 'admin', 'teacher']:
+            return qs.filter(is_active=True)
+        return qs.none()
 
 @admin.register(ClassCounter)
 class ClassCounterAdmin(admin.ModelAdmin):
