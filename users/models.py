@@ -1,11 +1,5 @@
-import random
-import string
-from typing import Any
 from django.db import models
 from django.contrib.auth.models import AbstractUser
-from django.core.exceptions import ValidationError
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils import timezone
 from cloudinary.models import CloudinaryField
 
@@ -13,12 +7,11 @@ from cloudinary.models import CloudinaryField
 class UserProfile(AbstractUser):
     ROLE_CHOICES = [
         ('superadmin', 'Super Admin'),
-        ('admin', 'Admin'),
+        ('staffs', 'Staffs'),
         ('teacher', 'Teacher'),
-        ('student', 'Student'),
     ]
 
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='student')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='staff')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
