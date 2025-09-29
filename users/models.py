@@ -55,7 +55,7 @@ class Student(models.Model):
     passport_url = CloudinaryField('passport', blank=True, null=True, folder='students/passports')
 
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, blank=True, related_name='student_profile')
-    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students')
+    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students', default='staffs')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
