@@ -4,10 +4,13 @@ from django.utils import timezone
 from cloudinary.models import CloudinaryField
 
 
+def get_default_staff():
+    return UserProfile.objects.filter(role__in=['staff', 'superadmin', 'teacher']).first().id
+
 class UserProfile(AbstractUser):
     ROLE_CHOICES = [
         ('superadmin', 'Super Admin'),
-        ('staffs', 'Staffs'),
+        ('staff', 'Staff'),
         ('teacher', 'Teacher'),
     ]
 
@@ -17,7 +20,7 @@ class UserProfile(AbstractUser):
     updated_at = models.DateTimeField(auto_now=True)
 
     # Allow blank/null email since it's not required for login
-    email = models.EmailField(unique=True, blank=True, null=True)
+    email = models.EmailField(unique=False, blank=True, null=True)
 
     class Meta:
         verbose_name = 'User Profile'
@@ -49,13 +52,13 @@ class Student(models.Model):
     address = models.TextField()
     class_name = models.CharField(max_length=20, help_text="e.g., SS1, JSS2, Nursery")
     parent_phone = models.CharField(max_length=15, help_text="e.g., +2348012345678")
-    parent_email = models.EmailField(blank=True, null=True)
+    parent_email = models.EmailField(unique=False, blank=True, null=True)
 
     admission_number = models.CharField(max_length=20, unique=True, editable=False)
     passport_url = CloudinaryField('passport', blank=True, null=True, folder='students/passports')
 
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, blank=True, related_name='student_profile')
-    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students', default='staffs')
+    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students', default=get_default_staff)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

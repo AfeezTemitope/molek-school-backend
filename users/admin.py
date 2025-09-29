@@ -32,6 +32,13 @@ class StudentAdmin(admin.ModelAdmin):
     search_fields = ['first_name', 'last_name', 'admission_number']
     list_filter = ['class_name', 'created_by', 'created_at']
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "created_by":
+            kwargs["queryset"] = UserProfile.objects.filter(
+                role__in=["superadmin", "staff", "teacher"]
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if not request.user.is_superuser:
