@@ -70,7 +70,6 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Student.objects.filter(created_by=user, is_active=True)
 
     def perform_create(self, serializer):
-        # Automatically assign the logged-in user as creator
         serializer.save(created_by=self.request.user)
 
 class ChangePasswordView(APIView):

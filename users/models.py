@@ -55,10 +55,22 @@ class Student(models.Model):
     parent_email = models.EmailField(unique=False, blank=True, null=True)
 
     admission_number = models.CharField(max_length=20, unique=True, editable=False)
-    passport_url = CloudinaryField('passport', blank=True, null=True, folder='students/passports')
+    passport_url = CloudinaryField(
+        'image',
+        folder='students/passports',
+        resource_type='image',
+        format='webp',
+        transformation={
+            'fetch_format': 'auto',
+            'quality': 'auto',
+            'secure': True,
+        },
+        blank=True,
+        null=True
+    )
 
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, blank=True, related_name='student_profile')
-    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students', default=get_default_staff)
+    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
