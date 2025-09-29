@@ -94,7 +94,7 @@ class Student(models.Model):
                 first_name=self.first_name,
                 last_name=self.last_name,
                 email=self.parent_email or None,
-                password=raw_password,  # Django hashes this automatically
+                password=raw_password,
                 role='student',
                 is_active=True,
             )
