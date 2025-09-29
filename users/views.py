@@ -3,7 +3,7 @@ import re
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from django.contrib.auth.password_validation import validate_password
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -112,7 +112,7 @@ class ChangePasswordView(APIView):
         )
 
 class LoginByAdmissionView(APIView):
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request):
         admission_number = request.data.get('admission_number')
