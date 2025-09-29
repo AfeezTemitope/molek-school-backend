@@ -33,6 +33,7 @@ CSRF_TRUSTED_ORIGINS = [config('CSRF_TRUSTED_ORIGINS')]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    config('VERCEL'),
 ]
 CORS_ALLOW_CREDENTIALS = True
 

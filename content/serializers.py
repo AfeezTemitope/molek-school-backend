@@ -32,7 +32,7 @@ class ContentItemSerializer(serializers.ModelSerializer):
 
     def validate_image_url(self, value):
         # Optional: Validate URL format or Cloudinary domain
-        if value and not value.startswith(('https://res.cloudinary.com/', 'http://')):
+        if value and not value.startswith(('https://res.cloudinary.com/', 'https://')):
             raise serializers.ValidationError("Image URL must be valid.")
         return value
 

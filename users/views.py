@@ -1,5 +1,7 @@
+import re
+
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
 from django.contrib.auth.password_validation import validate_password
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,9 +10,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError
+from rest_framework.parsers import MultiPartParser, FormParser
 from .models import Student, UserProfile
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .serializers import UserCreateSerializer, UserLoginSerializer, StudentSerializer, CustomTokenObtainPairSerializer
+import json
+from django.http import HttpResponse
+
 
 User = get_user_model()
 
@@ -143,3 +149,87 @@ class LoginByAdmissionView(APIView):
             'refresh': str(refresh),
             'user': serializer.data  # ✅ Now returns clean, structured user data
         }, status=status.HTTP_200_OK)
+
+class UpdateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        user = request.user
+        try:
+            student = user.student_profile
+        except Student.DoesNotExist:
+            return Response(
+                {"error": "No linked student profile"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        data = request.data.copy()
+        passport_url = request.FILES.get('passport_url')
+
+        # Update fields if provided
+        if 'parent_email' in data:
+            student.parent_email = data['parent_email']
+        if 'parent_phone' in data:
+            student.parent_phone = data['parent_phone']
+
+
+        if student.parent_phone:
+            if not re.match(r'^\+234\d{10}$', student.parent_phone):
+                return Response(
+                    {"error": "Phone must be in +23480... format"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Save passport URL via Cloudinary
+        if passport_url:
+            # This will upload to Cloudinary automatically thanks to CloudinaryField
+            student.passport_url = passport_url
+
+        student.save()
+
+        return Response({
+            "message": "Profile updated successfully",
+            "user": {
+                "full_name": f"{student.first_name} {student.last_name}",
+                "admission_number": student.admission_number,
+                "parent_email": student.parent_email,
+                "parent_phone": student.parent_phone,
+                "passport_url": student.passport_url.url if student.passport_url else None,
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class ExportStudentDataView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            student = request.user.student_profile
+        except Student.DoesNotExist:
+            return Response(
+                {"error": "No student profile found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        data = {
+            "student": {
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "admission_number": student.admission_number,
+                "class_name": student.class_name,
+                "gender": student.gender,
+                "age": student.age,
+                "address": student.address,
+                "parent_phone": student.parent_phone,
+                "parent_email": student.parent_email,
+                "created_at": student.created_at.isoformat(),
+            },
+            "generated_on": timezone.now().isoformat(),
+            "school": "Molek Schools"
+        }
+
+        json_str = json.dumps(data, indent=2)
+        response = HttpResponse(json_str, content_type='application/json')
+        response['Content-Disposition'] = f'attachment; filename="student_{student.admission_number}_data.json"'
+        return response
