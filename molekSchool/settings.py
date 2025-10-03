@@ -26,14 +26,18 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', 'localhost').split(',')
+ALLOWED_HOSTS = [
+    'molek-school-web-portal-front-end.vercel.app',
+    'molek-school-backend-production.up.railway.app',
+]
 # CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
 # print("ALLOWED_HOSTS:", config('ALLOWED_HOSTS', 'localhost'))
-CSRF_TRUSTED_ORIGINS = [config('CSRF_TRUSTED_ORIGINS')]
+CSRF_TRUSTED_ORIGINS = ['https://molek-school-backend-production.up.railway.app', 'https://molek-school-web-portal-front-end.vercel.app',]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    config('VERCEL'),
+    'https://molek-school-backend-production.up.railway.app',
+    'https://molek-school-web-portal-front-end.vercel.app',
 ]
 CORS_ALLOW_CREDENTIALS = True
 
