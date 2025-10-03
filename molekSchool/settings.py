@@ -29,6 +29,7 @@ DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = [
     'molek-school-web-portal-front-end.vercel.app',
     'molek-school-backend-production.up.railway.app',
+    '127.0.0.1',
 ]
 # CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
 # print("ALLOWED_HOSTS:", config('ALLOWED_HOSTS', 'localhost'))
