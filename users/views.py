@@ -112,6 +112,7 @@ class ChangePasswordView(APIView):
         )
 
 class LoginByAdmissionView(APIView):
+    permission_classes = (AllowAny,)
     def post(self, request):
         username = request.data.get('username')  # Can be admission or email
         password = request.data.get('password')
@@ -159,7 +160,6 @@ class LoginByAdmissionView(APIView):
             'refresh': str(refresh),
             'user': serializer.data
         }, status=status.HTTP_200_OK)
-
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -208,7 +208,6 @@ class UpdateProfileView(APIView):
                 "passport_url": student.passport_url.url if student.passport_url else None,
             }
         }, status=status.HTTP_200_OK)
-
 class ExportStudentDataView(APIView):
     permission_classes = [IsAuthenticated]
 
