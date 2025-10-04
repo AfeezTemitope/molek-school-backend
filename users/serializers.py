@@ -95,58 +95,57 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Class name cannot be empty")
         return value.strip().upper()
 
+# users/serializers.py
+
 class UserLoginSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='get_full_name', read_only=True)
     admission_number = serializers.SerializerMethodField()
     class_name = serializers.SerializerMethodField()
     parent_phone = serializers.SerializerMethodField()
     parent_email = serializers.SerializerMethodField()
-    role = serializers.CharField(read_only=True)
-
     passport_url = serializers.SerializerMethodField()
 
     class Meta:
-        model = User
+        model = UserProfile
         fields = [
             'id',
             'username',
             'full_name',
-            'admission_number',
             'role',
+            'admission_number',
             'class_name',
             'parent_phone',
             'parent_email',
-            'passport_url',
+            'passport_url'
         ]
         read_only_fields = fields
 
     def get_admission_number(self, obj):
         try:
             return obj.student_profile.admission_number
-        except Student.DoesNotExist:
+        except Exception:
             return None
 
     def get_class_name(self, obj):
         try:
             return obj.student_profile.class_name
-        except Student.DoesNotExist:
+        except Exception:
             return None
 
     def get_parent_phone(self, obj):
         try:
             return obj.student_profile.parent_phone
-        except Student.DoesNotExist:
+        except Exception:
             return None
 
     def get_parent_email(self, obj):
         try:
             return obj.student_profile.parent_email
-        except Student.DoesNotExist:
+        except Exception:
             return None
 
-    # ✅ NEW: This method returns the student's passport URL
     def get_passport_url(self, obj):
         try:
             return obj.student_profile.passport_url.url
-        except (Student.DoesNotExist, AttributeError):
+        except Exception:
             return None

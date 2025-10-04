@@ -55,6 +55,7 @@ INSTALLED_APPS = [
 
     'users',
     'content',
+    'attendance',
 
     'corsheaders',
     'rest_framework',

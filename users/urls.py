@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import LoginByAdmissionView, ChangePasswordView, UpdateProfileView, ExportStudentDataView
+from .views import LoginByAdmissionView, ChangePasswordView, UpdateProfileView, ExportStudentDataView, \
+    get_students_by_class
 from .views import UserViewSet, StudentViewSet, CustomTokenObtainPairView
 
 router = DefaultRouter()
@@ -14,4 +15,5 @@ urlpatterns = [
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('profile/update/', UpdateProfileView.as_view(), name='update_profile'),
     path('profile/export/', ExportStudentDataView.as_view(), name='export_student_data'),
+    path('students/by-class/', get_students_by_class, name='get_students_by_class'),
 ]

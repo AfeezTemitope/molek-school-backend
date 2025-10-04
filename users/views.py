@@ -3,6 +3,7 @@ import re
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from django.contrib.auth.password_validation import validate_password
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model, authenticate
@@ -111,42 +112,52 @@ class ChangePasswordView(APIView):
         )
 
 class LoginByAdmissionView(APIView):
-    permission_classes = [AllowAny]
-
     def post(self, request):
-        admission_number = request.data.get('admission_number')
+        username = request.data.get('username')  # Can be admission or email
         password = request.data.get('password')
 
-        if not admission_number or not password:
+        if not username or not password:
             return Response(
-                {'error': 'Admission number and password are required'},
+                {'error': 'Username and password are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # 🔍 Try to match as STUDENT: Admission Number + Last Name
         try:
-            student = Student.objects.get(admission_number=admission_number, is_active=True)
+            student = Student.objects.get(admission_number=username, is_active=True)
+            user = authenticate(
+                request,
+                username=student.user.username,  # Use Django user
+                password=password  # Should be student.last_name
+            )
+            if user:
+                return self._build_response(user)
         except Student.DoesNotExist:
-            return Response(
-                {'error': 'Invalid admission number or password'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+            pass  # Not a student — move to staff check
 
-        user = authenticate(username=student.user.username, password=password)
+        # 🔍 Try as STAFF/TEACHER: Email-based login
+        try:
+            user_profile = UserProfile.objects.get(email__iexact=username, role__in=['staff', 'teacher', 'superadmin'], is_active=True)
+            user = authenticate(request, username=user_profile.username, password=password)
+            if user:
+                return self._build_response(user)
+        except UserProfile.DoesNotExist:
+            pass
 
-        if user is None:
-            return Response(
-                {'error': 'Invalid admission number or password'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+        # ❌ Both failed
+        return Response(
+            {'error': 'Invalid login credentials'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
 
-        # ✅ Use UserLoginSerializer to serialize the user object
+    def _build_response(self, user):
+        refresh = RefreshToken.for_user(user)
         serializer = UserLoginSerializer(user)
 
-        refresh = RefreshToken.for_user(user)
         return Response({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
-            'user': serializer.data  # ✅ Now returns clean, structured user data
+            'user': serializer.data
         }, status=status.HTTP_200_OK)
 
 class UpdateProfileView(APIView):
@@ -198,7 +209,6 @@ class UpdateProfileView(APIView):
             }
         }, status=status.HTTP_200_OK)
 
-
 class ExportStudentDataView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -232,3 +242,27 @@ class ExportStudentDataView(APIView):
         response = HttpResponse(json_str, content_type='application/json')
         response['Content-Disposition'] = f'attachment; filename="student_{student.admission_number}_data.json"'
         return response
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_students_by_class(request):
+    """
+    Returns list of students in a given class.
+    Usage: /api/users/students/by-class/?class=JSS1%20Science
+    """
+    class_name = request.GET.get('class')
+    if not class_name:
+        return Response({'error': 'Class name required'}, status=400)
+
+    # Extract base level like "JSS1", "SS2" from full class name
+    base_class = class_name.split()[0]  # e.g., "SS2 Science" → "SS2"
+
+    students = Student.objects.filter(
+        is_active=True,
+        class_name__startswith=base_class
+    ).values('admission_number', 'first_name', 'last_name')
+
+    return Response({
+        'count': len(students),
+        'students': list(students)
+    })
