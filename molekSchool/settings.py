@@ -43,6 +43,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://molek-school-web-portal-front-end.vercel.app',
     'https://molek.netlify.app',
     'http://localhost:63342',
+    'http://localhost:5500',
 ]
 CORS_ALLOW_CREDENTIALS = True
 
