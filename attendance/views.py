@@ -1,26 +1,29 @@
-from django.utils import timezone
+# attendance/views.py
+
 from rest_framework.viewsets import ViewSet
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from users.models import Student, UserProfile
 from .models import Class, AttendanceRecord
+from django.utils import timezone
 
 
 class AttendanceViewSet(ViewSet):
     permission_classes = [IsAuthenticated]
-
     @action(detail=False, methods=['get'], url_path='classes')
     def teacher_classes(self, request):
         """List all classes taught by this teacher"""
         if not request.user.role == 'teacher':
-            return Response({"error": "Only teachers can access this"}, status=403)
+            return Response(
+                {"error": "Only teachers can access this"},
+                status=403
+            )
 
         classes = Class.objects.filter(teacher=request.user).values(
             'id', 'name', 'session_year'
         )
-        return Response(classes)
-
+        return Response(list(classes))
     @action(detail=False, methods=['post'], url_path='mark')
     def mark_attendance(self, request):
         """Mark daily attendance for students"""
@@ -48,7 +51,10 @@ class AttendanceViewSet(ViewSet):
                     student=student,
                     class_obj=class_obj,
                     date=timezone.now().date(),
-                    defaults={'status': status, 'recorded_by': request.user}
+                    defaults={
+                        'status': status,
+                        'recorded_by': request.user
+                    }
                 )
                 success_count += 1
             except Exception as e:
@@ -58,7 +64,6 @@ class AttendanceViewSet(ViewSet):
             "message": f"Attendance saved for {success_count} students",
             "errors": errors
         }, status=201)
-
     @action(detail=False, methods=['get'], url_path='stats/(?P<admission>[^/.]+)')
     def student_stats(self, request, admission=None):
         """Get attendance stats for one student"""

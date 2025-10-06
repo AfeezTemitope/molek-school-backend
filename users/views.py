@@ -246,15 +246,14 @@ class ExportStudentDataView(APIView):
 @permission_classes([IsAuthenticated])
 def get_students_by_class(request):
     """
-    Returns list of students in a given class.
-    Usage: /api/users/students/by-class/?class=JSS1%20Science
+    Returns students in a given class.
+    Usage: /api/users/students/by-class/?class=SS2%20Science
     """
     class_name = request.GET.get('class')
     if not class_name:
         return Response({'error': 'Class name required'}, status=400)
 
-    # Extract base level like "JSS1", "SS2" from full class name
-    base_class = class_name.split()[0]  # e.g., "SS2 Science" → "SS2"
+    base_class = class_name.split()[0]  # Extract "JSS1", "SS2"
 
     students = Student.objects.filter(
         is_active=True,
