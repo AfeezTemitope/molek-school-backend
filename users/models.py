@@ -3,7 +3,6 @@ from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 from cloudinary.models import CloudinaryField
 
-
 def get_default_staff():
     return UserProfile.objects.filter(role__in=['staff', 'superadmin', 'teacher']).first().id
 
@@ -19,13 +18,15 @@ class UserProfile(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # Allow blank/null email since it's not required for login
     email = models.EmailField(unique=False, blank=True, null=True)
 
     class Meta:
         verbose_name = 'User Profile'
         verbose_name_plural = 'User Profiles'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['role', 'is_active']),
+        ]
 
     def __str__(self):
         return f"{self.get_full_name()} ({self.role})"
@@ -43,14 +44,32 @@ class ClassCounter(models.Model):
     class Meta:
         verbose_name = "Class Counter"
         verbose_name_plural = "Class Counters"
+        indexes = [
+            models.Index(fields=['class_name']),
+        ]
 
 class Student(models.Model):
+    CLASS_CHOICES=[
+        ('JSS1', 'JSS1'),
+        ('JSS2', 'JSS2'),
+        ('JSS3', 'JSS3'),
+        ('SS1 Science', 'SS1 Science'),
+        ('SS1 Commercial', 'SS1 Commercial'),
+        ('SS1 Art', 'SS1 Art'),
+        ('SS2 Science', 'SS2 Science'),
+        ('SS2 Commercial', 'SS2 Commercial'),
+        ('SS2 Art', 'SS2 Art'),
+        ('SS3 Science', 'SS3 Science'),
+        ('SS3 Commercial', 'SS3 Commercial'),
+        ('SS3 Art', 'SS3 Art'),
+    ]
+
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
     gender = models.CharField(max_length=10, choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')])
     age = models.PositiveIntegerField(help_text="Age in years")
     address = models.TextField()
-    class_name = models.CharField(max_length=20, help_text="e.g., SS1, JSS2, Nursery")
+    class_name = models.CharField(max_length=20, choices=CLASS_CHOICES, help_text="e.g., SS2 Science")
     parent_phone = models.CharField(max_length=15, help_text="e.g., +2348012345678")
     parent_email = models.EmailField(unique=False, blank=True, null=True)
 
@@ -82,7 +101,7 @@ class Student(models.Model):
     def save(self, *args, **kwargs):
         if not self.pk:  # Only on creation
             year = timezone.now().year
-            class_name = self.class_name.strip().upper()
+            class_name = self.class_name.strip()
 
             # Get or create class counter
             class_counter, created = ClassCounter.objects.get_or_create(class_name=class_name)
@@ -97,10 +116,10 @@ class Student(models.Model):
             class_counter.count += 1
             class_counter.save()
 
-            # ✅ USE LAST NAME AS PASSWORD
-            raw_password = self.last_name  # ← This is now the password
+            # Use last name as password
+            raw_password = self.last_name
 
-            # ✅ Create user with admission_number as username
+            # Create user with admission_number as username
             user = UserProfile.objects.create_user(
                 username=self.admission_number,
                 first_name=self.first_name,
@@ -112,12 +131,11 @@ class Student(models.Model):
             )
 
             self.user = user
-            self._raw_password = raw_password  # For signal (if needed later)
+            self._raw_password = raw_password
 
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        # Soft delete
         self.is_active = False
         self.save(update_fields=['is_active'])
 
@@ -128,3 +146,9 @@ class Student(models.Model):
     @raw_password.setter
     def raw_password(self, value):
         raise AttributeError("Cannot set raw_password directly")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['admission_number']),
+            models.Index(fields=['class_name', 'is_active']),
+        ]

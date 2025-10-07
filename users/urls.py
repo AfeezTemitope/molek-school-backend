@@ -8,12 +8,11 @@ router = DefaultRouter()
 router.register(r'', UserViewSet, basename='user')
 router.register(r'students', StudentViewSet, basename='student')
 
-
 urlpatterns = [
+    path('students/by-class/', get_students_by_class, name='get_students_by_class'),
     path('', include(router.urls)),
     path('login/admission/', LoginByAdmissionView.as_view(), name='login_by_admission'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('profile/update/', UpdateProfileView.as_view(), name='update_profile'),
     path('profile/export/', ExportStudentDataView.as_view(), name='export_student_data'),
-    path('students/by-class/', get_students_by_class, name='get_students_by_class'),
 ]

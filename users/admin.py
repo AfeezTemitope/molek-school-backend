@@ -45,7 +45,6 @@ class StudentAdmin(admin.ModelAdmin):
             return qs.filter(created_by=request.user)
         return qs
 
-    # ✅ NEW: Reset password to student's last name
     actions = ['reset_password_to_lastname']
 
     @admin.action(description="Reset password to student's last name")
@@ -59,18 +58,15 @@ class StudentAdmin(admin.ModelAdmin):
                 if not user:
                     continue
 
-                # Set password to last name (e.g., Okafor)
                 raw_password = student.last_name
                 user.set_password(raw_password)
                 user.save()
 
-                # Log success
                 self.log_change(request, student, f"Password reset to {raw_password} (last name)")
                 success_count += 1
             except Exception as e:
                 error_count += 1
 
-        # Show message to admin
         if success_count > 0:
             self.message_user(
                 request,

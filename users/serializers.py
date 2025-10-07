@@ -1,9 +1,6 @@
-# users/serializers.py
-
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
 from .models import Student, UserProfile
 
 User = get_user_model()
@@ -42,14 +39,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        # Only return refresh and access tokens
         data = super().validate(attrs)
-        data['user'] = {
-            'id': self.user.id,
-            'username': self.user.username,
-            'role': self.user.role,
-            'full_name': self.user.get_full_name(),
-            'email': self.user.email,
-        }
         return data
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -59,7 +50,7 @@ class StudentSerializer(serializers.ModelSerializer):
     Returns passport_url as full URL.
     """
     admission_number = serializers.CharField(read_only=True)
-    created_by = serializers.StringRelatedField(read_only=True)  # Shows username
+    created_by = serializers.StringRelatedField(read_only=True)
     passport_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -91,11 +82,10 @@ class StudentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_class_name(self, value):
-        if not value.strip():
-            raise serializers.ValidationError("Class name cannot be empty")
-        return value.strip().upper()
-
-# users/serializers.py
+        valid_classes = [choice[0] for choice in Student.CLASS_CHOICES]
+        if value not in valid_classes:
+            raise serializers.ValidationError(f"Class name must be one of: {', '.join(valid_classes)}")
+        return value
 
 class UserLoginSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='get_full_name', read_only=True)

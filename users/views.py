@@ -12,6 +12,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser
+
+from attendance.models import Class
 from .models import Student, UserProfile
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .serializers import UserCreateSerializer, UserLoginSerializer, StudentSerializer, CustomTokenObtainPairSerializer
@@ -28,9 +30,26 @@ User = get_user_model()
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
-# =============================
-# 2. User Management ViewSet (Super Admin Only)
-# =============================
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = serializer.user  # Access the authenticated user
+
+        # Add user data to response
+        user_data = {
+            'id': user.id,
+            'username': user.username,
+            'role': user.role,
+            'full_name': user.get_full_name(),
+            'email': user.email,
+        }
+        response_data = {
+            'refresh': str(data['refresh']),
+            'access': str(data['access']),
+            'user': user_data
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
 class UserViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
     serializer_class = UserCreateSerializer
@@ -54,9 +73,6 @@ class IsSuperAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == 'superadmin'
 
-# =============================
-# 3. Student ViewSet (Admin/Teacher Only)
-# =============================
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.filter(is_active=True)
     serializer_class = StudentSerializer
@@ -246,21 +262,39 @@ class ExportStudentDataView(APIView):
 @permission_classes([IsAuthenticated])
 def get_students_by_class(request):
     """
-    Returns students in a given class.
-    Usage: /api/users/students/by-class/?class=SS2%20Science
+    Returns students in a given class or the teacher's assigned class.
+    Usage: /api/users/students/by-class/?class=SS2%20Science or no query param for teacher's class.
     """
-    class_name = request.GET.get('class')
-    if not class_name:
-        return Response({'error': 'Class name required'}, status=400)
+    user = request.user
+    if user.role != 'teacher':
+        return Response({'error': 'Only teachers can access this'}, status=403)
 
-    base_class = class_name.split()[0]  # Extract "JSS1", "SS2"
+    class_name = request.GET.get('class')
+
+    if not class_name:
+        try:
+            class_obj = Class.objects.filter(teacher=user).first()
+            if not class_obj:
+                return Response({'error': 'No class assigned to this teacher'}, status=404)
+            class_name = class_obj.name
+            class_id = class_obj.id
+        except Class.DoesNotExist:
+            return Response({'error': 'No class assigned to this teacher'}, status=404)
+    else:
+        try:
+            class_obj = Class.objects.get(name=class_name, teacher=user)
+            class_id = class_obj.id
+        except Class.DoesNotExist:
+            return Response({'error': 'Class not found or not assigned to this teacher'}, status=404)
 
     students = Student.objects.filter(
         is_active=True,
-        class_name__startswith=base_class
+        class_name=class_name
     ).values('admission_number', 'first_name', 'last_name')
 
     return Response({
         'count': len(students),
+        'class_name': class_name,
+        'class_id': class_id,
         'students': list(students)
     })
