@@ -2,11 +2,10 @@
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import AttendanceViewSet
-
-router = DefaultRouter()
-router.register(r'', AttendanceViewSet, basename='attendance')
+from .views import TeacherClassesAPIView, MarkAttendanceAPIView, student_monthly_attendance
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('classes/', TeacherClassesAPIView.as_view(), name='teacher-classes'),
+    path('mark/', MarkAttendanceAPIView.as_view(), name='mark-attendance'),
+    path('stats/<str:admission_number>/monthly/', student_monthly_attendance, name='monthly-stats'),
 ]

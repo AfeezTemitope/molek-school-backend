@@ -37,18 +37,15 @@ class AttendanceRecord(models.Model):
         ('excused', 'Excused')
     ]
 
-    student = models.ForeignKey(Student, on_delete=models.CASCADE)
-    class_obj = models.ForeignKey(Class, on_delete=models.CASCADE)
-    date = models.DateField()  # Removed auto_now_add
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='attendances')
+    date = models.DateField(auto_now_add=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='present')
     recorded_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True)
+    notes = models.TextField(blank=True, null=True)
 
     class Meta:
-        unique_together = ['student', 'date', 'class_obj']
-        indexes = [
-            models.Index(fields=['student', 'date']),
-            models.Index(fields=['class_obj', 'date']),
-        ]
+        unique_together = ['student', 'date']
+        ordering = ['-date']
 
     def __str__(self):
-        return f"{self.student.admission_number} - {self.status}"
+        return f"{self.student.admission_number} - {self.date} ({self.status})"

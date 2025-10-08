@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib import messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group
-from .models import UserProfile, Student, ClassCounter
+from .models import UserProfile, Student, ClassCounter, TeacherAssignment
 
 admin.site.unregister(Group)
 
@@ -100,3 +100,10 @@ class StudentAdmin(admin.ModelAdmin):
 class ClassCounterAdmin(admin.ModelAdmin):
     list_display = ('class_name', 'count')
     readonly_fields = ('count',)
+
+@admin.register(TeacherAssignment)
+class TeacherAssignmentAdmin(admin.ModelAdmin):
+    list_display = ['teacher', 'class_name', 'session_year']
+    list_filter = ['session_year', 'class_name', 'teacher__username']
+    search_fields = ['teacher__first_name', 'teacher__last_name', 'class_name']
+    autocomplete_fields = ['teacher']

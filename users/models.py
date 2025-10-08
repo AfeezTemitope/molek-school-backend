@@ -152,3 +152,40 @@ class Student(models.Model):
             models.Index(fields=['admission_number']),
             models.Index(fields=['class_name', 'is_active']),
         ]
+
+class TeacherAssignment(models.Model):
+    """
+    Assigns a teacher to a class.
+    e.g., Mr. Ade → SS2 Science
+    """
+    CLASS_CHOICES = [
+        ('JSS1', 'JSS1'),
+        ('JSS2', 'JSS2'),
+        ('JSS3', 'JSS3'),
+        ('SS1 Science', 'SS1 - Science'),
+        ('SS1 Commercial', 'SS1 - Commercial'),
+        ('SS1 Art', 'SS1 - Art'),
+        ('SS2 Science', 'SS2 - Science'),
+        ('SS2 Commercial', 'SS2 - Commercial'),
+        ('SS2 Art', 'SS2 - Art'),
+        ('SS3 Science', 'SS3 - Science'),
+        ('SS3 Commercial', 'SS3 - Commercial'),
+        ('SS3 Art', 'SS3 - Art'),
+    ]
+
+    teacher = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        limit_choices_to={'role': 'teacher'}
+    )
+    class_name = models.CharField(max_length=50, choices=CLASS_CHOICES)
+    session_year = models.CharField(max_length=9, default="2025/2026")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.teacher.username} → {self.class_name}"
+
+    class Meta:
+        verbose_name = "Teacher Assignment"
+        verbose_name_plural = "Teacher Assignments"
+        unique_together = ['teacher', 'class_name']  # One teacher per class
