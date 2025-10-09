@@ -137,23 +137,22 @@ class LoginStudentView(APIView):
             {'error': 'Invalid admission number or password'},
             status=status.HTTP_401_UNAUTHORIZED
         )
-
 class LoginStaffView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get('email')
+        username = request.data.get('username')
         password = request.data.get('password')
 
-        if not email or not password:
+        if not username or not password:
             return Response(
-                {'error': 'Email and password required'},
+                {'error': 'Username and password required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-            user_profile = UserProfile.objects.get(email__iexact=email, role__in=['teacher', 'staff', 'superadmin'], is_active=True)
-            user = authenticate(request, username=user_profile.username, password=password)
+            user_profile = UserProfile.objects.get(username=username, role__in=['teacher', 'staff', 'superadmin'], is_active=True)
+            user = authenticate(request, username=username, password=password)
             if user:
                 refresh = RefreshToken.for_user(user)
                 serializer = UserLoginSerializer(user)
@@ -167,9 +166,10 @@ class LoginStaffView(APIView):
             pass
 
         return Response(
-            {'error': 'Invalid email or password'},
+            {'error': 'Invalid username or password'},
             status=status.HTTP_401_UNAUTHORIZED
         )
+
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
