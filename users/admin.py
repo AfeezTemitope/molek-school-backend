@@ -1,43 +1,76 @@
 from django.contrib import admin
-from django.contrib import messages
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.models import Group
-from .models import UserProfile, Student, ClassCounter, TeacherAssignment
-
-admin.site.unregister(Group)
+from .models import UserProfile, ClassCounter, Student, TeacherAssignment
 
 @admin.register(UserProfile)
-class UserProfileAdmin(BaseUserAdmin):
-    list_display = ('username', 'first_name', 'last_name', 'role', 'is_active', 'created_at')
-    list_filter = ('role', 'is_active', 'created_at')
-    search_fields = ('username', 'first_name', 'last_name', 'email')
-    ordering = ('-created_at',)
-    fieldsets = BaseUserAdmin.fieldsets + (
-        ('Custom Fields', {'fields': ('role',)}),
-    )
-    add_fieldsets = BaseUserAdmin.add_fieldsets + (
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ['username', 'first_name', 'last_name', 'role', 'is_active', 'created_at']
+    list_filter = ['role', 'is_active', 'created_at']
+    search_fields = ['username', 'first_name', 'last_name', 'email']
+    ordering = ['-created_at']
+    fieldsets = (
+        (None, {'fields': ('username', 'password')}),
+        ('Personal info', {'fields': ('first_name', 'last_name', 'email')}),
+        ('Permissions', {
+            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
+        }),
+        ('Important dates', {'fields': ('last_login', 'date_joined')}),
         ('Custom Fields', {'fields': ('role',)}),
     )
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if not request.user.is_superuser:
-            return qs.filter(is_superuser=False)
-        return qs
+@admin.register(ClassCounter)
+class ClassCounterAdmin(admin.ModelAdmin):
+    list_display = ['class_name', 'count']
+    readonly_fields = ['count']
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ['admission_number', 'first_name', 'last_name', 'class_name', 'parent_phone', 'created_by']
-    readonly_fields = ['admission_number', 'created_at', 'updated_at']
+    list_display = [
+        'admission_number',
+        'first_name',
+        'last_name',
+        'get_full_class',
+        'parent_phone',
+        'created_by'
+    ]
+    readonly_fields = [
+        'admission_number',
+        'created_at',
+        'updated_at',
+        'user'
+    ]
     search_fields = ['first_name', 'last_name', 'admission_number']
-    list_filter = ['class_name', 'created_by', 'created_at']
+    list_filter = ['class_level', 'stream', 'section', 'created_by', 'created_at']
 
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "created_by":
-            kwargs["queryset"] = UserProfile.objects.filter(
-                role__in=["superadmin", "staff", "teacher"]
-            )
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    fieldsets = (
+        ('Personal Info', {
+            'fields': ('first_name', 'last_name', 'gender', 'age', 'address')
+        }),
+        ('Class Info', {
+            'fields': ('class_level', 'stream', 'section')  # ✅ All dropdowns
+        }),
+        ('Parent Info', {
+            'fields': ('parent_phone', 'parent_email')
+        }),
+        ('Media', {
+            'fields': ('passport_url',)
+        }),
+        ('System Info', {
+            'fields': (
+                'admission_number',
+                'created_by',
+                'created_at',
+                'updated_at',
+                'is_active'
+            ),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_full_class(self, obj):
+        stream_part = f" {obj.stream}" if obj.stream else ""
+        section_part = f" {obj.section}" if obj.section else ""
+        return f"{obj.class_level}{stream_part}{section_part}"
+    get_full_class.short_description = "Class"
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -45,65 +78,14 @@ class StudentAdmin(admin.ModelAdmin):
             return qs.filter(created_by=request.user)
         return qs
 
-    actions = ['reset_password_to_lastname']
-
-    @admin.action(description="Reset password to student's last name")
-    def reset_password_to_lastname(self, request, queryset):
-        success_count = 0
-        error_count = 0
-
-        for student in queryset:
-            try:
-                user = student.user
-                if not user:
-                    continue
-
-                raw_password = student.last_name
-                user.set_password(raw_password)
-                user.save()
-
-                self.log_change(request, student, f"Password reset to {raw_password} (last name)")
-                success_count += 1
-            except Exception as e:
-                error_count += 1
-
-        if success_count > 0:
-            self.message_user(
-                request,
-                f"Successfully reset passwords to last names for {success_count} students.",
-                level=messages.SUCCESS
-            )
-        if error_count > 0:
-            self.message_user(
-                request,
-                f"Failed to reset {error_count} students.",
-                level=messages.ERROR
-            )
-
-    fieldsets = (
-        ('Personal Info', {
-            'fields': ('first_name', 'last_name', 'gender', 'age', 'address', 'class_name')
-        }),
-        ('Parent Info', {
-            'fields': ('parent_phone', 'parent_email'),
-        }),
-        ('Media', {
-            'fields': ('passport_url',)
-        }),
-        ('System Info', {
-            'fields': ('admission_number', 'created_by', 'created_at', 'updated_at', 'is_active'),
-            'classes': ('collapse',)
-        }),
-    )
-
-@admin.register(ClassCounter)
-class ClassCounterAdmin(admin.ModelAdmin):
-    list_display = ('class_name', 'count')
-    readonly_fields = ('count',)
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
 @admin.register(TeacherAssignment)
 class TeacherAssignmentAdmin(admin.ModelAdmin):
-    list_display = ['teacher', 'class_name', 'session_year']
-    list_filter = ['session_year', 'class_name', 'teacher__username']
-    search_fields = ['teacher__first_name', 'teacher__last_name', 'class_name']
+    list_display = ['teacher', 'level', 'stream', 'section', 'session_year']
+    list_filter = ['level', 'stream', 'section', 'session_year', 'teacher']
+    search_fields = ['teacher__username', 'teacher__first_name', 'teacher__last_name']
     autocomplete_fields = ['teacher']

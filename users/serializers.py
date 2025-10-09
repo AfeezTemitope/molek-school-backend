@@ -44,11 +44,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 class StudentSerializer(serializers.ModelSerializer):
-    """
-    Serializes Student model for API.
-    Hides password and raw_password.
-    Returns passport_url as full URL.
-    """
     admission_number = serializers.CharField(read_only=True)
     created_by = serializers.StringRelatedField(read_only=True)
     passport_url = serializers.SerializerMethodField()
@@ -57,19 +52,17 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             'id', 'first_name', 'last_name', 'gender', 'age', 'address',
-            'class_name', 'parent_phone', 'parent_email',
+            'class_level', 'class_name', 'section', 'parent_phone', 'parent_email',
             'admission_number', 'passport_url', 'created_by', 'created_at', 'is_active'
         ]
         read_only_fields = ['admission_number', 'created_by', 'created_at', 'id']
 
     def get_passport_url(self, obj):
-        """Return full Cloudinary URL if exists, else None"""
         if obj.passport_url:
             return obj.passport_url.url
         return None
 
     def validate_parent_phone(self, value):
-        """Validate Nigerian phone format"""
         import re
         pattern = r'^\+234\d{10}$'
         if not re.match(pattern, value):
@@ -81,10 +74,10 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Age must be between 3 and 18")
         return value
 
-    def validate_class_name(self, value):
-        valid_classes = [choice[0] for choice in Student.CLASS_CHOICES]
-        if value not in valid_classes:
-            raise serializers.ValidationError(f"Class name must be one of: {', '.join(valid_classes)}")
+    def validate_class_level(self, value):
+        valid_levels = ['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3']
+        if value not in valid_levels:
+            raise serializers.ValidationError(f"Class level must be one of: {', '.join(valid_levels)}")
         return value
 
 class UserLoginSerializer(serializers.ModelSerializer):
@@ -118,7 +111,7 @@ class UserLoginSerializer(serializers.ModelSerializer):
 
     def get_class_name(self, obj):
         try:
-            return obj.student_profile.class_name
+            return f"{obj.student_profile.class_level} {obj.student_profile.section or ''}".strip()
         except Exception:
             return None
 

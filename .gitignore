@@ -15,6 +15,7 @@ pip-delete-this-directory.txt
 # Django
 db.sqlite3
 media/
+db.sqlite3/
 
 # IDE
 .idea/

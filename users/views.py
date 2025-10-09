@@ -1,5 +1,4 @@
 import re
-
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from django.contrib.auth.password_validation import validate_password
@@ -12,8 +11,6 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser
-
-from attendance.models import Class
 from .models import Student, UserProfile
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .serializers import UserCreateSerializer, UserLoginSerializer, StudentSerializer, CustomTokenObtainPairSerializer
@@ -23,10 +20,6 @@ from django.http import HttpResponse
 
 User = get_user_model()
 
-
-# =============================
-# 1. JWT Login View
-# =============================
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
@@ -34,9 +27,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        user = serializer.user  # Access the authenticated user
+        user = serializer.user
 
-        # Add user data to response
         user_data = {
             'id': user.id,
             'username': user.username,
@@ -50,29 +42,11 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             'user': user_data
         }
         return Response(response_data, status=status.HTTP_200_OK)
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = UserProfile.objects.all()
-    serializer_class = UserCreateSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_permissions(self):
-        if self.action in ['create', 'destroy']:
-            # Only superadmin can create/delete users
-            return [permissions.IsAuthenticated(), IsSuperAdmin()]
-        return super().get_permissions()
-
-    def get_queryset(self):
-        # Superadmin sees all, others see only themselves (future)
-        user = self.request.user
-        if user.role == 'superadmin':
-            return UserProfile.objects.all()
-        return UserProfile.objects.filter(id=user.id)
 
 class IsSuperAdmin(permissions.BasePermission):
     """Custom permission: only superadmin can create/delete users"""
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == 'superadmin'
-
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.filter(is_active=True)
     serializer_class = StudentSerializer
@@ -127,55 +101,75 @@ class ChangePasswordView(APIView):
             status=status.HTTP_200_OK
         )
 
-class LoginByAdmissionView(APIView):
-    permission_classes = (AllowAny,)
-    def post(self, request):
-        username = request.data.get('username')  # Can be admission or email
-        password = request.data.get('password')
+class LoginStudentView(APIView):
+    permission_classes = [AllowAny]
 
-        if not username or not password:
+    def post(self, request):
+        admission_number = request.data.get('admission_number')
+        password = request.data.get('password')  # Last name
+
+        if not admission_number or not password:
             return Response(
-                {'error': 'Username and password are required'},
+                {'error': 'Admission number and password required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 🔍 Try to match as STUDENT: Admission Number + Last Name
         try:
-            student = Student.objects.get(admission_number=username, is_active=True)
+            student = Student.objects.get(admission_number=admission_number, is_active=True)
             user = authenticate(
                 request,
-                username=student.user.username,  # Use Django user
-                password=password  # Should be student.last_name
+                username=student.user.username,
+                password=password
             )
             if user:
-                return self._build_response(user)
-        except Student.DoesNotExist:
-            pass  # Not a student — move to staff check
+                refresh = RefreshToken.for_user(user)
+                serializer = UserLoginSerializer(user)
 
-        # 🔍 Try as STAFF/TEACHER: Email-based login
-        try:
-            user_profile = UserProfile.objects.get(email__iexact=username, role__in=['staff', 'teacher', 'superadmin'], is_active=True)
-            user = authenticate(request, username=user_profile.username, password=password)
-            if user:
-                return self._build_response(user)
-        except UserProfile.DoesNotExist:
+                return Response({
+                    'access': str(refresh.access_token),
+                    'refresh': str(refresh),
+                    'user': serializer.data
+                }, status=status.HTTP_200_OK)
+        except (Student.DoesNotExist, UserProfile.DoesNotExist):
             pass
 
-        # ❌ Both failed
         return Response(
-            {'error': 'Invalid login credentials'},
+            {'error': 'Invalid admission number or password'},
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    def _build_response(self, user):
-        refresh = RefreshToken.for_user(user)
-        serializer = UserLoginSerializer(user)
+class LoginStaffView(APIView):
+    permission_classes = [AllowAny]
 
-        return Response({
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-            'user': serializer.data
-        }, status=status.HTTP_200_OK)
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+
+        if not email or not password:
+            return Response(
+                {'error': 'Email and password required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user_profile = UserProfile.objects.get(email__iexact=email, role__in=['teacher', 'staff', 'superadmin'], is_active=True)
+            user = authenticate(request, username=user_profile.username, password=password)
+            if user:
+                refresh = RefreshToken.for_user(user)
+                serializer = UserLoginSerializer(user)
+
+                return Response({
+                    'access': str(refresh.access_token),
+                    'refresh': str(refresh),
+                    'user': serializer.data
+                }, status=status.HTTP_200_OK)
+        except UserProfile.DoesNotExist:
+            pass
+
+        return Response(
+            {'error': 'Invalid email or password'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -224,6 +218,21 @@ class UpdateProfileView(APIView):
                 "passport_url": student.passport_url.url if student.passport_url else None,
             }
         }, status=status.HTTP_200_OK)
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserCreateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ['create', 'destroy']:
+            return [permissions.IsAuthenticated(), IsSuperAdmin()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'superadmin':
+            return UserProfile.objects.all()
+        return UserProfile.objects.filter(id=user.id)
 class ExportStudentDataView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -241,7 +250,8 @@ class ExportStudentDataView(APIView):
                 "first_name": student.first_name,
                 "last_name": student.last_name,
                 "admission_number": student.admission_number,
-                "class_name": student.class_name,
+                "class_level": student.class_level,
+                "section": student.section,
                 "gender": student.gender,
                 "age": student.age,
                 "address": student.address,
@@ -261,40 +271,19 @@ class ExportStudentDataView(APIView):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_students_by_class(request):
-    """
-    Returns students in a given class or the teacher's assigned class.
-    Usage: /api/users/students/by-class/?class=SS2%20Science or no query param for teacher's class.
-    """
-    user = request.user
-    if user.role != 'teacher':
-        return Response({'error': 'Only teachers can access this'}, status=403)
+    class_level = request.GET.get('class')
+    section = request.GET.get('section', '').strip().upper()
 
-    class_name = request.GET.get('class')
-
-    if not class_name:
-        try:
-            class_obj = Class.objects.filter(teacher=user).first()
-            if not class_obj:
-                return Response({'error': 'No class assigned to this teacher'}, status=404)
-            class_name = class_obj.name
-            class_id = class_obj.id
-        except Class.DoesNotExist:
-            return Response({'error': 'No class assigned to this teacher'}, status=404)
-    else:
-        try:
-            class_obj = Class.objects.get(name=class_name, teacher=user)
-            class_id = class_obj.id
-        except Class.DoesNotExist:
-            return Response({'error': 'Class not found or not assigned to this teacher'}, status=404)
+    if not class_level:
+        return Response({'error': 'Class required'}, status=400)
 
     students = Student.objects.filter(
         is_active=True,
-        class_name=class_name
-    ).values('admission_number', 'first_name', 'last_name')
+        class_level=class_level,
+        section=section if section else None
+    ).values('admission_number', 'first_name', 'last_name', 'class_level', 'section')
 
     return Response({
         'count': len(students),
-        'class_name': class_name,
-        'class_id': class_id,
         'students': list(students)
     })

@@ -1,3 +1,6 @@
+import random
+import string
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
@@ -49,29 +52,50 @@ class ClassCounter(models.Model):
         ]
 
 class Student(models.Model):
-    CLASS_CHOICES=[
+    GENDER_CHOICES = [
+        ('Male', 'Male'),
+        ('Female', 'Female'),
+        ('Other', 'Other')
+    ]
+
+    # ✅ Dropdown for class level
+    CLASS_LEVEL_CHOICES = [
         ('JSS1', 'JSS1'),
         ('JSS2', 'JSS2'),
         ('JSS3', 'JSS3'),
-        ('SS1 Science', 'SS1 Science'),
-        ('SS1 Commercial', 'SS1 Commercial'),
-        ('SS1 Art', 'SS1 Art'),
-        ('SS2 Science', 'SS2 Science'),
-        ('SS2 Commercial', 'SS2 Commercial'),
-        ('SS2 Art', 'SS2 Art'),
-        ('SS3 Science', 'SS3 Science'),
-        ('SS3 Commercial', 'SS3 Commercial'),
-        ('SS3 Art', 'SS3 Art'),
+        ('SS1', 'SS1'),
+        ('SS2', 'SS2'),
+        ('SS3', 'SS3'),
+    ]
+
+    # ✅ Dropdown for stream (depends on class)
+    STREAM_CHOICES = [
+        ('Science', 'Science'),
+        ('Commercial', 'Commercial'),
+        ('Art', 'Art'),
+        ('General', 'General'),  # For JSS levels
+    ]
+
+    # ✅ Dropdown for section
+    SECTION_CHOICES = [
+        ('A', 'Section A'),
+        ('B', 'Section B'),
+        ('C', 'Section C'),
     ]
 
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
-    gender = models.CharField(max_length=10, choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')])
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
     age = models.PositiveIntegerField(help_text="Age in years")
     address = models.TextField()
-    class_name = models.CharField(max_length=20, choices=CLASS_CHOICES, help_text="e.g., SS2 Science")
-    parent_phone = models.CharField(max_length=15, help_text="e.g., +2348012345678")
-    parent_email = models.EmailField(unique=False, blank=True, null=True)
+
+    # ✅ New fields with dropdowns
+    class_level = models.CharField(max_length=10, choices=CLASS_LEVEL_CHOICES, help_text="e.g., SS1, JSS2")
+    stream = models.CharField(max_length=15, choices=STREAM_CHOICES, blank=True, null=True)
+    section = models.CharField(max_length=1, choices=SECTION_CHOICES, blank=True, null=True)
+
+    parent_phone = models.CharField(max_length=15, help_text="e.g., +23480...")
+    parent_email = models.EmailField(blank=True, null=True)
 
     admission_number = models.CharField(max_length=20, unique=True, editable=False)
     passport_url = CloudinaryField(
@@ -96,12 +120,14 @@ class Student(models.Model):
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.admission_number} - {self.first_name} {self.last_name}"
+        stream_part = f" {self.stream}" if self.stream else ""
+        section_part = f" {self.section}" if self.section else ""
+        return f"{self.admission_number} - {self.first_name} {self.last_name}{stream_part}{section_part}"
 
     def save(self, *args, **kwargs):
         if not self.pk:  # Only on creation
             year = timezone.now().year
-            class_name = self.class_name.strip()
+            class_name = self.class_level.strip().upper()
 
             # Get or create class counter
             class_counter, created = ClassCounter.objects.get_or_create(class_name=class_name)
@@ -116,8 +142,9 @@ class Student(models.Model):
             class_counter.count += 1
             class_counter.save()
 
-            # Use last name as password
-            raw_password = self.last_name
+            # Generate 6-digit alphanumeric password
+            chars = string.ascii_uppercase + string.digits
+            raw_password = ''.join(random.choice(chars) for _ in range(6))
 
             # Create user with admission_number as username
             user = UserProfile.objects.create_user(
@@ -147,45 +174,47 @@ class Student(models.Model):
     def raw_password(self, value):
         raise AttributeError("Cannot set raw_password directly")
 
-    class Meta:
-        indexes = [
-            models.Index(fields=['admission_number']),
-            models.Index(fields=['class_name', 'is_active']),
-        ]
-
 class TeacherAssignment(models.Model):
-    """
-    Assigns a teacher to a class.
-    e.g., Mr. Ade → SS2 Science
-    """
-    CLASS_CHOICES = [
+    LEVEL_CHOICES = [
         ('JSS1', 'JSS1'),
         ('JSS2', 'JSS2'),
         ('JSS3', 'JSS3'),
-        ('SS1 Science', 'SS1 - Science'),
-        ('SS1 Commercial', 'SS1 - Commercial'),
-        ('SS1 Art', 'SS1 - Art'),
-        ('SS2 Science', 'SS2 - Science'),
-        ('SS2 Commercial', 'SS2 - Commercial'),
-        ('SS2 Art', 'SS2 - Art'),
-        ('SS3 Science', 'SS3 - Science'),
-        ('SS3 Commercial', 'SS3 - Commercial'),
-        ('SS3 Art', 'SS3 - Art'),
+        ('SS1', 'SS1'),
+        ('SS2', 'SS2'),
+        ('SS3', 'SS3'),
+    ]
+    STREAM_CHOICES = [
+        ('Science', 'Science'),
+        ('Commercial', 'Commercial'),
+        ('Art', 'Art'),
+        ('General', 'General'),  # For JSS
     ]
 
     teacher = models.ForeignKey(
         UserProfile,
         on_delete=models.CASCADE,
-        limit_choices_to={'role': 'teacher'}
+        limit_choices_to={'role': 'teacher'},
+        related_name='assigned_classes'
     )
-    class_name = models.CharField(max_length=50, choices=CLASS_CHOICES)
+    level = models.CharField(max_length=10, choices=LEVEL_CHOICES)
+    stream = models.CharField(max_length=15, choices=STREAM_CHOICES, blank=True, null=True)
+    section = models.CharField(max_length=1, choices=[
+        ('A', 'A'), ('B', 'B'), ('C', 'C')
+    ])
     session_year = models.CharField(max_length=9, default="2025/2026")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.teacher.username} → {self.class_name}"
 
     class Meta:
-        verbose_name = "Teacher Assignment"
-        verbose_name_plural = "Teacher Assignments"
-        unique_together = ['teacher', 'class_name']  # One teacher per class
+        unique_together = ['teacher', 'level', 'stream', 'section']
+        verbose_name = "Class Assignment"
+        verbose_name_plural = "Class Assignments"
+
+    def __str__(self):
+        if self.stream:
+            return f"{self.level} {self.stream} - Section {self.section}"
+        return f"{self.level} - Section {self.section}"
+
+    @property
+    def class_name(self):
+        if self.stream:
+            return f"{self.level} {self.stream} {self.section}"
+        return f"{self.level} {self.section}"

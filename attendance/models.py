@@ -1,33 +1,37 @@
 from django.db import models
 from users.models import Student, UserProfile
 
-class Class(models.Model):
-    CLASS_CHOICES = [
-        ('JSS1', 'JSS1'),
-        ('JSS2', 'JSS2'),
-        ('JSS3', 'JSS3'),
-        ('SS1 Science', 'SS1 Science'),
-        ('SS1 Commercial', 'SS1 Commercial'),
-        ('SS1 Art', 'SS1 Art'),
-        ('SS2 Science', 'SS2 Science'),
-        ('SS2 Commercial', 'SS2 Commercial'),
-        ('SS2 Art', 'SS2 Art'),
-        ('SS3 Science', 'SS3 Science'),
-        ('SS3 Commercial', 'SS3 Commercial'),
-        ('SS3 Art', 'SS3 Art'),
+
+class TeacherAssignment(models.Model):
+    CLASS_LEVELS = [
+        'JSS1', 'JSS2', 'JSS3',
+        'SS1', 'SS2', 'SS3',
+    ]
+    STREAMS = [
+        ('Science', 'Science'),
+        ('Commercial', 'Commercial'),
+        ('Art', 'Art'),
+        ('General', 'General'),  # For JSS
     ]
 
-    name = models.CharField(max_length=30, choices=CLASS_CHOICES, unique=True)
     teacher = models.ForeignKey(UserProfile, on_delete=models.CASCADE, limit_choices_to={'role': 'teacher'})
+    level = models.CharField(max_length=10)  # JSS1, SS2
+    stream = models.CharField(max_length=15, choices=STREAMS, blank=True, null=True)
+    section = models.CharField(max_length=1, choices=[
+        ('A', 'A'), ('B', 'B'), ('C', 'C')
+    ])
     session_year = models.CharField(max_length=9, default="2025/2026")
 
-    def __str__(self):
-        return f"{self.name} ({self.session_year})"
-
     class Meta:
-        indexes = [
-            models.Index(fields=['teacher', 'name']),
-        ]
+        unique_together = ['teacher', 'level', 'stream', 'section']
+        verbose_name = "Teacher Assignment"
+        verbose_name_plural = "Teacher Assignments"
+
+    def __str__(self):
+        if self.stream:
+            return f"{self.level} {self.stream} {self.section}"
+        return f"{self.level} {self.section}"
+
 
 class AttendanceRecord(models.Model):
     STATUS_CHOICES = [
@@ -38,10 +42,9 @@ class AttendanceRecord(models.Model):
     ]
 
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='attendances')
-    date = models.DateField(auto_now_add=True)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='present')
+    date = models.DateField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
     recorded_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True)
-    notes = models.TextField(blank=True, null=True)
 
     class Meta:
         unique_together = ['student', 'date']
