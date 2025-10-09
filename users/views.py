@@ -144,7 +144,10 @@ class LoginStaffView(APIView):
         username = request.data.get('username')
         password = request.data.get('password')
 
+        print(f"🔐 Login attempt - Username: {username}, Password: {'*' * len(password)}")
+
         if not username or not password:
+            print("⚠️ Missing username or password")
             return Response(
                 {'error': 'Username and password required'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -152,8 +155,11 @@ class LoginStaffView(APIView):
 
         try:
             user_profile = UserProfile.objects.get(username=username, role__in=['teacher', 'staff', 'superadmin'], is_active=True)
+            print(f"✅ Found user profile: {user_profile.username} ({user_profile.role})")
+
             user = authenticate(request, username=username, password=password)
             if user:
+                print("✅ Authentication successful")
                 refresh = RefreshToken.for_user(user)
                 serializer = UserLoginSerializer(user)
 
@@ -162,14 +168,15 @@ class LoginStaffView(APIView):
                     'refresh': str(refresh),
                     'user': serializer.data
                 }, status=status.HTTP_200_OK)
+            else:
+                print("❌ Authentication failed")
         except UserProfile.DoesNotExist:
-            pass
+            print("❌ UserProfile not found or inactive")
 
         return Response(
             {'error': 'Invalid username or password'},
             status=status.HTTP_401_UNAUTHORIZED
         )
-
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
