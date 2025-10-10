@@ -1,6 +1,5 @@
 import random
 import string
-
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
@@ -57,8 +56,6 @@ class Student(models.Model):
         ('Female', 'Female'),
         ('Other', 'Other')
     ]
-
-    # ✅ Dropdown for class level
     CLASS_LEVEL_CHOICES = [
         ('JSS1', 'JSS1'),
         ('JSS2', 'JSS2'),
@@ -67,16 +64,12 @@ class Student(models.Model):
         ('SS2', 'SS2'),
         ('SS3', 'SS3'),
     ]
-
-    # ✅ Dropdown for stream (depends on class)
     STREAM_CHOICES = [
         ('Science', 'Science'),
         ('Commercial', 'Commercial'),
         ('Art', 'Art'),
-        ('General', 'General'),  # For JSS levels
+        ('General', 'General'),
     ]
-
-    # ✅ Dropdown for section
     SECTION_CHOICES = [
         ('A', 'Section A'),
         ('B', 'Section B'),
@@ -88,91 +81,45 @@ class Student(models.Model):
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
     age = models.PositiveIntegerField(help_text="Age in years")
     address = models.TextField()
-
-    # ✅ New fields with dropdowns
     class_level = models.CharField(max_length=10, choices=CLASS_LEVEL_CHOICES, help_text="e.g., SS1, JSS2")
     stream = models.CharField(max_length=15, choices=STREAM_CHOICES, blank=True, null=True)
     section = models.CharField(max_length=1, choices=SECTION_CHOICES, blank=True, null=True)
-
     parent_phone = models.CharField(max_length=15, help_text="e.g., +23480...")
     parent_email = models.EmailField(blank=True, null=True)
-
     admission_number = models.CharField(max_length=20, unique=True, editable=False)
-    passport_url = CloudinaryField(
-        'image',
-        folder='students/passports',
-        resource_type='image',
-        format='webp',
-        transformation={
-            'fetch_format': 'auto',
-            'quality': 'auto',
-            'secure': True,
-        },
-        blank=True,
-        null=True
-    )
-
-    user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, blank=True, related_name='student_profile')
+    passport_url = CloudinaryField('image', blank=True, null=True)
+    user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, related_name='student_profile')
     created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students')
-
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
-
-    def __str__(self):
-        stream_part = f" {self.stream}" if self.stream else ""
-        section_part = f" {self.section}" if self.section else ""
-        return f"{self.admission_number} - {self.first_name} {self.last_name}{stream_part}{section_part}"
 
     def save(self, *args, **kwargs):
         if not self.pk:  # Only on creation
             year = timezone.now().year
             class_name = self.class_level.strip().upper()
-
-            # Get or create class counter
             class_counter, created = ClassCounter.objects.get_or_create(class_name=class_name)
             class_sn = class_counter.count + 1
             global_sn = Student.objects.count() + 1
             global_sn_padded = str(global_sn).zfill(3)
-
-            # Generate admission number
             self.admission_number = f"{year}/{class_sn}/{global_sn_padded}"
-
-            # Increment class counter
             class_counter.count += 1
             class_counter.save()
-
-            # Generate 6-digit alphanumeric password
-            chars = string.ascii_uppercase + string.digits
-            raw_password = ''.join(random.choice(chars) for _ in range(6))
-
-            # Create user with admission_number as username
             user = UserProfile.objects.create_user(
                 username=self.admission_number,
                 first_name=self.first_name,
                 last_name=self.last_name,
                 email=self.parent_email or None,
-                password=raw_password,
+                password=self.last_name.lower(),
                 role='student',
                 is_active=True,
             )
-
             self.user = user
-            self._raw_password = raw_password
-
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         self.is_active = False
         self.save(update_fields=['is_active'])
-
-    @property
-    def raw_password(self):
-        return getattr(self, '_raw_password', None)
-
-    @raw_password.setter
-    def raw_password(self, value):
-        raise AttributeError("Cannot set raw_password directly")
 
 class TeacherAssignment(models.Model):
     LEVEL_CHOICES = [
@@ -187,7 +134,7 @@ class TeacherAssignment(models.Model):
         ('Science', 'Science'),
         ('Commercial', 'Commercial'),
         ('Art', 'Art'),
-        ('General', 'General'),  # For JSS
+        ('General', 'General'),
     ]
 
     teacher = models.ForeignKey(
@@ -198,9 +145,7 @@ class TeacherAssignment(models.Model):
     )
     level = models.CharField(max_length=10, choices=LEVEL_CHOICES)
     stream = models.CharField(max_length=15, choices=STREAM_CHOICES, blank=True, null=True)
-    section = models.CharField(max_length=1, choices=[
-        ('A', 'A'), ('B', 'B'), ('C', 'C')
-    ])
+    section = models.CharField(max_length=1, choices=[('A', 'A'), ('B', 'B'), ('C', 'C')])
     session_year = models.CharField(max_length=9, default="2025/2026")
 
     class Meta:

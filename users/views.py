@@ -105,38 +105,43 @@ class LoginStudentView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        admission_number = request.data.get('admission_number')
-        password = request.data.get('password')  # Last name
+        username = request.data.get('username')
+        password = request.data.get('password')
 
-        if not admission_number or not password:
+        print(f"🔐 Student login attempt - Username: {username}, Password: {'*' * len(password)}")
+
+        if not username or not password:
+            print("⚠️ Missing username or password")
             return Response(
-                {'error': 'Admission number and password required'},
+                {'error': 'Username and password required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-            student = Student.objects.get(admission_number=admission_number, is_active=True)
-            user = authenticate(
-                request,
-                username=student.user.username,
-                password=password
-            )
+            user_profile = UserProfile.objects.get(username=username, role='student', is_active=True)
+            print(f"✅ Found user profile: {user_profile.username} ({user_profile.role})")
+            user = authenticate(request, username=username, password=password)
             if user:
+                print("✅ Authentication successful")
                 refresh = RefreshToken.for_user(user)
                 serializer = UserLoginSerializer(user)
-
                 return Response({
                     'access': str(refresh.access_token),
                     'refresh': str(refresh),
                     'user': serializer.data
                 }, status=status.HTTP_200_OK)
-        except (Student.DoesNotExist, UserProfile.DoesNotExist):
-            pass
-
-        return Response(
-            {'error': 'Invalid admission number or password'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+            else:
+                print("❌ Authentication failed")
+                return Response(
+                    {'error': 'Invalid username or password'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+        except UserProfile.DoesNotExist:
+            print("❌ UserProfile not found or inactive")
+            return Response(
+                {'error': 'Invalid username or password'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 class LoginStaffView(APIView):
     permission_classes = [AllowAny]
 
