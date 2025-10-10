@@ -1,8 +1,10 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
 from .models import UserProfile, ClassCounter, Student, TeacherAssignment
 
+
 @admin.register(UserProfile)
-class UserProfileAdmin(admin.ModelAdmin):
+class UserProfileAdmin(UserAdmin):
     list_display = ['username', 'first_name', 'last_name', 'role', 'is_active', 'created_at']
     list_filter = ['role', 'is_active', 'created_at']
     search_fields = ['username', 'first_name', 'last_name', 'email']
@@ -16,11 +18,21 @@ class UserProfileAdmin(admin.ModelAdmin):
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
         ('Custom Fields', {'fields': ('role',)}),
     )
+    # Make password field read-only to prevent direct editing
+    readonly_fields = ['password']
+
+    def save_model(self, request, obj, form, change):
+        # If creating a new user and a plain text password is provided, hash it
+        if not change and 'password' in form.changed_data:
+            obj.set_password(form.cleaned_data['password'])
+        super().save_model(request, obj, form, change)
+
 
 @admin.register(ClassCounter)
 class ClassCounterAdmin(admin.ModelAdmin):
     list_display = ['class_name', 'count']
     readonly_fields = ['count']
+
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
@@ -46,7 +58,7 @@ class StudentAdmin(admin.ModelAdmin):
             'fields': ('first_name', 'last_name', 'gender', 'age', 'address')
         }),
         ('Class Info', {
-            'fields': ('class_level', 'stream', 'section')  # ✅ All dropdowns
+            'fields': ('class_level', 'stream', 'section')
         }),
         ('Parent Info', {
             'fields': ('parent_phone', 'parent_email')
@@ -70,6 +82,7 @@ class StudentAdmin(admin.ModelAdmin):
         stream_part = f" {obj.stream}" if obj.stream else ""
         section_part = f" {obj.section}" if obj.section else ""
         return f"{obj.class_level}{stream_part}{section_part}"
+
     get_full_class.short_description = "Class"
 
     def get_queryset(self, request):
@@ -82,6 +95,7 @@ class StudentAdmin(admin.ModelAdmin):
         if not change:
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
 
 @admin.register(TeacherAssignment)
 class TeacherAssignmentAdmin(admin.ModelAdmin):
