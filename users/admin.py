@@ -2,7 +2,6 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import UserProfile, ClassCounter, Student, TeacherAssignment
 
-
 @admin.register(UserProfile)
 class UserProfileAdmin(UserAdmin):
     list_display = ['username', 'first_name', 'last_name', 'role', 'is_active', 'created_at']
@@ -18,21 +17,17 @@ class UserProfileAdmin(UserAdmin):
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
         ('Custom Fields', {'fields': ('role',)}),
     )
-    # Make password field read-only to prevent direct editing
     readonly_fields = ['password']
 
     def save_model(self, request, obj, form, change):
-        # If creating a new user and a plain text password is provided, hash it
         if not change and 'password' in form.changed_data:
             obj.set_password(form.cleaned_data['password'])
         super().save_model(request, obj, form, change)
-
 
 @admin.register(ClassCounter)
 class ClassCounterAdmin(admin.ModelAdmin):
     list_display = ['class_name', 'count']
     readonly_fields = ['count']
-
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
@@ -96,6 +91,11 @@ class StudentAdmin(admin.ModelAdmin):
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == 'created_by':
+            kwargs['queryset'] = UserProfile.objects.filter(id=request.user.id)
+            kwargs['initial'] = request.user.id  # Set default to current user
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 @admin.register(TeacherAssignment)
 class TeacherAssignmentAdmin(admin.ModelAdmin):
