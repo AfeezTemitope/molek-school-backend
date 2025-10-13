@@ -1,5 +1,3 @@
-# attendance/serializers.py
-
 from rest_framework import serializers
 from .models import TeacherAssignment, AttendanceRecord
 from users.models import Student
@@ -24,3 +22,11 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = ['admission_number', 'first_name', 'last_name', 'class_level', 'section']
+
+
+class AttendanceRecordSerializer(serializers.ModelSerializer):
+    student = StudentAttendanceSerializer(read_only=True)
+
+    class Meta:
+        model = AttendanceRecord
+        fields = ['student', 'date', 'status', 'recorded_by']
