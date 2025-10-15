@@ -50,7 +50,12 @@ class ClassCounter(models.Model):
             models.Index(fields=['class_name']),
         ]
 
+class StudentManager(models.Manager):
+    def active_by_class(self, level, section, stream=None):
+        return self.filter(class_level=level, section=section, stream=stream, is_active=True)
+
 class Student(models.Model):
+    objects = StudentManager()
     GENDER_CHOICES = [
         ('Male', 'Male'),
         ('Female', 'Female'),

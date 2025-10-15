@@ -1,3 +1,6 @@
+import logging
+
+from django.core.cache import cache
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -10,7 +13,16 @@ from .models import TeacherAssignment, AttendanceRecord
 from users.models import Student, UserProfile
 from .serializers import TeacherAssignmentSerializer, AttendanceStatsSerializer, StudentAttendanceSerializer
 from django.db.models import Count, Q
+from django.db import connection
 
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.core.cache import cache
+from .models import TeacherAssignment, Student
+
+logger = logging.getLogger(__name__)
 
 class TeacherClassesAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -19,34 +31,54 @@ class TeacherClassesAPIView(APIView):
         if request.user.role != 'teacher':
             return Response({"error": "Only teachers can access"}, status=403)
 
-        # Optimize query with select_related to reduce DB hits
-        assignments = TeacherAssignment.objects.filter(teacher=request.user).select_related('teacher')
-        data = []
+        cache_key = f"teacher_assignments_{request.user.id}"
+        data = cache.get(cache_key)
 
-        for a in assignments:
-            base_name = f"{a.level} {a.section}"
-            full_name = f"{a.level} {a.stream} {a.section}" if a.stream else base_name
-
-            # Prefetch students to minimize queries
-            students = Student.objects.filter(
-                class_level=a.level,
-                section=a.section,
-                is_active=True
-            ).values('admission_number', 'first_name', 'last_name')
-
-            data.append({
-                "id": a.id,
-                "name": full_name,
-                "level": a.level,
-                "stream": a.stream,
-                "section": a.section,
-                "session_year": a.session_year,
-                "students": list(students),
-                "count": len(students)
-            })
+        if not data:
+            logger.info(f"Fetching assignments for teacher {request.user.username} (ID: {request.user.id})")
+            assignments = TeacherAssignment.objects.filter(teacher=request.user).select_related('teacher')
+            logger.info(f"Found assignments: {list(assignments.values('id', 'level', 'stream', 'section'))}")
+            data = []
+            for a in assignments:
+                students = Student.objects.filter(
+                    class_level=a.level,
+                    section=a.section,
+                    stream=a.stream,
+                    is_active=True
+                ).values('admission_number', 'first_name', 'last_name')
+                full_name = f"{a.level} {a.stream or ''} {a.section}".strip()
+                data.append({
+                    "id": a.id,
+                    "name": full_name,
+                    "level": a.level,
+                    "stream": a.stream,
+                    "section": a.section,
+                    "session_year": a.session_year,
+                    "students": list(students),
+                    "count": len(students)
+                })
+            cache.set(cache_key, data, 3600)
 
         return Response(data)
+class StudentsByClassAPIView(APIView):
+    permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+        if request.user.role != 'teacher':
+            return Response({"error": "Unauthorized"}, status=403)
+        class_level = request.query_params.get('class')
+        section = request.query_params.get('section', '').strip().upper()
+        if not class_level:
+            return Response({"error": "Class required"}, status=400)
+        students = Student.objects.filter(
+            class_level=class_level,
+            section=section,
+            is_active=True
+        ).values('admission_number', 'first_name', 'last_name', 'class_level', 'section')
+        return Response({
+            "count": len(students),
+            "students": list(students)
+        })
 class CheckAttendanceAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -67,7 +99,6 @@ class CheckAttendanceAPIView(APIView):
             return Response({"submitted": records})
         except TeacherAssignment.DoesNotExist:
             return Response({"error": "Class not found"}, status=404)
-
 class MarkAttendanceAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -80,10 +111,8 @@ class MarkAttendanceAPIView(APIView):
         records = request.data.get('records', [])
 
         try:
-            # Verify teacher is assigned to class
             assignment = TeacherAssignment.objects.get(id=class_id, teacher=request.user)
 
-            # Check if attendance already exists
             existing_records = AttendanceRecord.objects.filter(
                 student__class_level=assignment.level,
                 student__section=assignment.section,
@@ -125,7 +154,6 @@ class MarkAttendanceAPIView(APIView):
             }, status=201)
         except TeacherAssignment.DoesNotExist:
             return Response({"error": "Class not found or unauthorized"}, status=404)
-
 class StudentMonthlyAttendance(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -136,7 +164,6 @@ class StudentMonthlyAttendance(APIView):
             return Response({"error": "Student not found"}, status=404)
 
         six_months_ago = date.today() - timedelta(days=180)
-        # Optimize with annotate to reduce DB queries
         records = AttendanceRecord.objects.filter(
             student=student,
             date__gte=six_months_ago
@@ -159,7 +186,6 @@ class StudentMonthlyAttendance(APIView):
             })
 
         return Response(result)
-
 class TeacherAttendanceReport(APIView):
     permission_classes = [IsAuthenticated]
 

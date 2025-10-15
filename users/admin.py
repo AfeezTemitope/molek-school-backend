@@ -23,12 +23,10 @@ class UserProfileAdmin(UserAdmin):
         if not change and 'password' in form.changed_data:
             obj.set_password(form.cleaned_data['password'])
         super().save_model(request, obj, form, change)
-
 @admin.register(ClassCounter)
 class ClassCounterAdmin(admin.ModelAdmin):
     list_display = ['class_name', 'count']
     readonly_fields = ['count']
-
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
     list_display = [
@@ -96,7 +94,6 @@ class StudentAdmin(admin.ModelAdmin):
             kwargs['queryset'] = UserProfile.objects.filter(id=request.user.id)
             kwargs['initial'] = request.user.id  # Set default to current user
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
 @admin.register(TeacherAssignment)
 class TeacherAssignmentAdmin(admin.ModelAdmin):
     list_display = ['teacher', 'level', 'stream', 'section', 'session_year']

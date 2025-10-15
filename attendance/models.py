@@ -11,15 +11,13 @@ class TeacherAssignment(models.Model):
         ('Science', 'Science'),
         ('Commercial', 'Commercial'),
         ('Art', 'Art'),
-        ('General', 'General'),  # For JSS
+        ('General', 'General'),
     ]
 
-    teacher = models.ForeignKey(UserProfile, on_delete=models.CASCADE, limit_choices_to={'role': 'teacher'})
-    level = models.CharField(max_length=10)  # JSS1, SS2
+    teacher = models.ForeignKey(UserProfile, on_delete=models.CASCADE, limit_choices_to={'role': 'teacher'}, related_name='assignments')
+    level = models.CharField(max_length=10, choices=[(x, x) for x in CLASS_LEVELS])
     stream = models.CharField(max_length=15, choices=STREAMS, blank=True, null=True)
-    section = models.CharField(max_length=1, choices=[
-        ('A', 'A'), ('B', 'B'), ('C', 'C')
-    ])
+    section = models.CharField(max_length=1, choices=[('A', 'A'), ('B', 'B'), ('C', 'C')])
     session_year = models.CharField(max_length=9, default="2025/2026")
 
     class Meta:
@@ -28,10 +26,16 @@ class TeacherAssignment(models.Model):
         verbose_name_plural = "Teacher Assignments"
 
     def __str__(self):
-        if self.stream:
-            return f"{self.level} {self.stream} {self.section}"
-        return f"{self.level} {self.section}"
+        return f"{self.level} {self.stream or ''} {self.section}".strip()
 
+    @property
+    def assigned_students(self):
+        return Student.objects.filter(
+            class_level=self.level,
+            section=self.section,
+            stream=self.stream,
+            is_active=True
+        )
 
 class AttendanceRecord(models.Model):
     STATUS_CHOICES = [
