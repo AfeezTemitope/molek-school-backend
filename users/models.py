@@ -1,4 +1,6 @@
 from datetime import datetime
+
+from django.contrib.auth.hashers import make_password
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from cloudinary.models import CloudinaryField
@@ -128,6 +130,14 @@ class Student(models.Model):
     parent_phone_number = models.CharField(max_length=15, blank=True, null=True)
     passport = CloudinaryField('image', blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    user = models.OneToOneField(
+        UserProfile,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='student_profile'
+    )
+
     created_by = models.ForeignKey(
         UserProfile,
         on_delete=models.SET_NULL,
@@ -135,6 +145,7 @@ class Student(models.Model):
         blank=True,
         related_name='students_created'
     )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -148,6 +159,8 @@ class Student(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
         if not self.admission_number:
             year = str(datetime.now().year)
             class_level = self.class_level
@@ -155,7 +168,34 @@ class Student(models.Model):
             section = self.section or 'A'
             count = Student.objects.filter(class_level=class_level, stream=stream, section=section).count() + 1
             self.admission_number = f'{year}/{class_level}/{stream.upper()}/{section}/{count:03d}'
+
         super().save(*args, **kwargs)
+
+        # After saving, create a student user if missing
+        if is_new and not self.user:
+            username = self.admission_number.lower().replace("/", "_")
+            # Ensure username is unique
+            base_username = username
+            counter = 1
+            while UserProfile.objects.filter(username=username).exists():
+                username = f"{base_username}_{counter}"
+                counter += 1
+
+            student_user = UserProfile.objects.create(
+                username=username,
+                email=self.parent_email or f"{username}@molekschools.com",
+                first_name=self.first_name or "",
+                last_name=self.last_name or "",
+                role='student',
+                is_active=True,
+                created_by=self.created_by,
+            )
+            # Set password to last_name (or send reset link later)
+            student_user.set_password(make_password(self.last_name or "password"))
+            student_user.save()
+
+            self.user = student_user
+            self.save(update_fields=['user'])
 
     def __str__(self):
         return f"{self.full_name} ({self.admission_number})"

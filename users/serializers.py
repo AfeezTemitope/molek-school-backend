@@ -95,32 +95,37 @@ class UserLoginSerializer(serializers.Serializer):
     admission_number = serializers.CharField(max_length=50)
     last_name = serializers.CharField(max_length=150)
 
+    # In UserLoginSerializer.validate()
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         admission_number = attrs.get('admission_number')
         last_name = attrs.get('last_name')
 
         if not re.match(r'^\d{4}/[A-Z0-9]+/[A-Za-z]+/[A-Z]/\d{3}$', admission_number):
             raise serializers.ValidationError({
-                'admission_number': f'Invalid format: {admission_number}. Expected: YYYY/CLASS/STREAM/SECTION/NNN (e.g., 2025/SS1/SCI/A/001)'
+                'admission_number': f'Invalid format: {admission_number}. Expected: YYYY/CLASS/STREAM/SECTION/NNN'
             })
 
         try:
-            student = Student.objects.get(
+            student = Student.objects.select_related('user').get(
                 admission_number__iexact=admission_number,
                 last_name__iexact=last_name,
                 is_active=True
             )
-            user = student.created_by
-            if not user or not user.is_active:
-                raise serializers.ValidationError({
-                    'detail': 'No active user account linked to this student'
-                })
+            if not student.user:
+                raise serializers.ValidationError({'detail': 'Student account not initialized'})
+
+            user = student.user  # ← NOW this is the student's own account
+            if not user.is_active:
+                raise serializers.ValidationError({'detail': 'Student account is inactive'})
+
         except Student.DoesNotExist:
             raise serializers.ValidationError({
                 'detail': f'No active student found with admission_number="{admission_number}" and last_name="{last_name}"'
             })
 
+        # Generate token for the STUDENT user
         token = CustomTokenObtainPairSerializer.get_token(user)
+
         return {
             'token': {
                 'access': str(token.access_token),
@@ -141,18 +146,10 @@ class UserLoginSerializer(serializers.Serializer):
                 'address': user.address,
                 'state_of_origin': user.state_of_origin,
                 'local_govt_area': user.local_govt_area,
-                'passport_url': student.passport.url if student.passport else None,
                 'admission_number': student.admission_number,
+                'passport_url': student.passport.url if student.passport else None,
                 'parent_email': student.parent_email,
                 'parent_phone_number': student.parent_phone_number,
-                'student_first_name': student.first_name,
-                'student_last_name': student.last_name,
-                'student_full_name': student.full_name,
-                'student_age': student.age,
-                'student_sex': student.sex,
-                'student_address': student.address,
-                'student_state_of_origin': student.state_of_origin,
-                'student_local_govt_area': student.local_govt_area,
             }
         }
 
