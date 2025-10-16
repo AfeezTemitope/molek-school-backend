@@ -1,170 +1,125 @@
-import random
-import string
 from django.db import models
-from django.contrib.auth.models import AbstractUser
-from django.utils import timezone
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from cloudinary.models import CloudinaryField
 
-def get_default_staff():
-    return UserProfile.objects.filter(role__in=['staff', 'superadmin', 'teacher']).first().id
+class UserProfileManager(BaseUserManager):
+    def create_user(self, username, email, first_name, last_name, role='student', phone_number=None, password=None):
+        if not username:
+            raise ValueError('Username is required')
+        email = self.normalize_email(email)
+        user = self.model(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            phone_number=phone_number
+        )
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
 
-class UserProfile(AbstractUser):
-    ROLE_CHOICES = [
-        ('superadmin', 'Super Admin'),
-        ('staff', 'Staff'),
+    def create_superuser(self, username, email, first_name, last_name, password, role='superadmin', phone_number=None):
+        user = self.create_user(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            phone_number=phone_number,
+            password=password
+        )
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(using=self._db)
+        return user
+
+class UserProfile(AbstractBaseUser, PermissionsMixin):
+    ROLE_CHOICES = (
+        ('student', 'Student'),
         ('teacher', 'Teacher'),
-    ]
+        ('admin', 'Admin'),
+        ('superadmin', 'Superadmin'),
+    )
 
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='staff')
+    username = models.CharField(max_length=150, unique=True)
+    email = models.EmailField(unique=True)
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
+    phone_number = models.CharField(max_length=15, blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='users_created')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    email = models.EmailField(unique=False, blank=True, null=True)
+    objects = UserProfileManager()
+
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = ['email', 'first_name', 'last_name']
 
     class Meta:
-        verbose_name = 'User Profile'
-        verbose_name_plural = 'User Profiles'
-        ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['role', 'is_active']),
+            models.Index(fields=['username']),
+            models.Index(fields=['email']),
+            models.Index(fields=['role']),
+            models.Index(fields=['is_active']),
         ]
 
     def __str__(self):
-        return f"{self.get_full_name()} ({self.role})"
-
-    def get_full_name(self):
-        return f"{self.first_name} {self.last_name}".strip() or self.username
-
-class ClassCounter(models.Model):
-    class_name = models.CharField(max_length=20, unique=True)
-    count = models.PositiveIntegerField(default=0)
-
-    def __str__(self):
-        return f"{self.class_name}: {self.count}"
-
-    class Meta:
-        verbose_name = "Class Counter"
-        verbose_name_plural = "Class Counters"
-        indexes = [
-            models.Index(fields=['class_name']),
-        ]
-
-class StudentManager(models.Manager):
-    def active_by_class(self, level, section, stream=None):
-        return self.filter(class_level=level, section=section, stream=stream, is_active=True)
+        return self.username
 
 class Student(models.Model):
-    objects = StudentManager()
-    GENDER_CHOICES = [
-        ('Male', 'Male'),
-        ('Female', 'Female'),
-        ('Other', 'Other')
-    ]
-    CLASS_LEVEL_CHOICES = [
-        ('JSS1', 'JSS1'),
-        ('JSS2', 'JSS2'),
-        ('JSS3', 'JSS3'),
-        ('SS1', 'SS1'),
-        ('SS2', 'SS2'),
-        ('SS3', 'SS3'),
-    ]
-    STREAM_CHOICES = [
+    CLASS_LEVEL_CHOICES = (
+        ('JSS1', 'Junior Secondary 1'),
+        ('JSS2', 'Junior Secondary 2'),
+        ('JSS3', 'Junior Secondary 3'),
+        ('SS1', 'Senior Secondary 1'),
+        ('SS2', 'Senior Secondary 2'),
+        ('SS3', 'Senior Secondary 3'),
+    )
+    STREAM_CHOICES = (
         ('Science', 'Science'),
         ('Commercial', 'Commercial'),
         ('Art', 'Art'),
         ('General', 'General'),
-    ]
-    SECTION_CHOICES = [
-        ('A', 'Section A'),
-        ('B', 'Section B'),
-        ('C', 'Section C'),
-    ]
+    )
+    SECTION_CHOICES = (
+        ('A', 'A'),
+        ('B', 'B'),
+        ('C', 'C'),
+    )
 
-    first_name = models.CharField(max_length=50)
-    last_name = models.CharField(max_length=50)
-    gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
-    age = models.PositiveIntegerField(help_text="Age in years")
-    address = models.TextField()
-    class_level = models.CharField(max_length=10, choices=CLASS_LEVEL_CHOICES, help_text="e.g., SS1, JSS2")
-    stream = models.CharField(max_length=15, choices=STREAM_CHOICES, blank=True, null=True)
+    user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, related_name='student_profile')
+    admission_number = models.CharField(max_length=50, unique=True)
+    class_level = models.CharField(max_length=10, choices=CLASS_LEVEL_CHOICES)
+    stream = models.CharField(max_length=20, choices=STREAM_CHOICES, blank=True, null=True)
     section = models.CharField(max_length=1, choices=SECTION_CHOICES, blank=True, null=True)
-    parent_phone = models.CharField(max_length=15, help_text="e.g., +23480...")
-    parent_email = models.EmailField(blank=True, null=True)
-    admission_number = models.CharField(max_length=20, unique=True, editable=False)
-    passport_url = CloudinaryField('image', blank=True, null=True)
-    user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, null=True, related_name='student_profile')
-    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, related_name='created_students')
+    passport = CloudinaryField('image', blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='students_created')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['admission_number']),
+            models.Index(fields=['class_level']),
+            models.Index(fields=['stream']),
+            models.Index(fields=['section']),
+            models.Index(fields=['is_active']),
+        ]
+
     def save(self, *args, **kwargs):
-        if not self.pk:  # Only on creation
-            year = timezone.now().year
-            class_name = self.class_level.strip().upper()
-            class_counter, created = ClassCounter.objects.get_or_create(class_name=class_name)
-            class_sn = class_counter.count + 1
-            global_sn = Student.objects.count() + 1
-            global_sn_padded = str(global_sn).zfill(3)
-            self.admission_number = f"{year}/{class_sn}/{global_sn_padded}"
-            class_counter.count += 1
-            class_counter.save()
-            user = UserProfile.objects.create_user(
-                username=self.admission_number,
-                first_name=self.first_name,
-                last_name=self.last_name,
-                email=self.parent_email or None,
-                password=self.last_name.lower(),
-                role='student',
-                is_active=True,
-            )
-            self.user = user
+        if not self.admission_number:
+            year = '2025'  # Adjust as needed
+            class_level = self.class_level
+            stream = self.stream or 'GENERAL'
+            section = self.section or 'A'
+            count = Student.objects.filter(class_level=class_level, stream=stream, section=section).count() + 1
+            self.admission_number = f'{year}/{class_level}/{stream.upper()}/{section}/{count:03d}'
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
-        self.is_active = False
-        self.save(update_fields=['is_active'])
-
-class TeacherAssignment(models.Model):
-    LEVEL_CHOICES = [
-        ('JSS1', 'JSS1'),
-        ('JSS2', 'JSS2'),
-        ('JSS3', 'JSS3'),
-        ('SS1', 'SS1'),
-        ('SS2', 'SS2'),
-        ('SS3', 'SS3'),
-    ]
-    STREAM_CHOICES = [
-        ('Science', 'Science'),
-        ('Commercial', 'Commercial'),
-        ('Art', 'Art'),
-        ('General', 'General'),
-    ]
-
-    teacher = models.ForeignKey(
-        UserProfile,
-        on_delete=models.CASCADE,
-        limit_choices_to={'role': 'teacher'},
-        related_name='assigned_classes'
-    )
-    level = models.CharField(max_length=10, choices=LEVEL_CHOICES)
-    stream = models.CharField(max_length=15, choices=STREAM_CHOICES, blank=True, null=True)
-    section = models.CharField(max_length=1, choices=[('A', 'A'), ('B', 'B'), ('C', 'C')])
-    session_year = models.CharField(max_length=9, default="2025/2026")
-
-    class Meta:
-        unique_together = ['teacher', 'level', 'stream', 'section']
-        verbose_name = "Class Assignment"
-        verbose_name_plural = "Class Assignments"
-
     def __str__(self):
-        if self.stream:
-            return f"{self.level} {self.stream} - Section {self.section}"
-        return f"{self.level} - Section {self.section}"
-
-    @property
-    def class_name(self):
-        if self.stream:
-            return f"{self.level} {self.stream} {self.section}"
-        return f"{self.level} {self.section}"
+        return f"{self.user.username} ({self.admission_number})"

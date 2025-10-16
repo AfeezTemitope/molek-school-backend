@@ -1,52 +1,44 @@
-from rest_framework import generics, permissions
+from rest_framework import generics, status
+from rest_framework.permissions import AllowAny
+from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from .models import ContentItem
 from .serializers import ContentItemSerializer
 from .permissions import IsAdminOrSuperAdmin
 
 class ContentItemListCreateView(generics.ListCreateAPIView):
-    queryset = ContentItem.objects.filter(is_active=True, published=True).order_by('-publish_date')
+    queryset = ContentItem.objects.filter(is_active=True, published=True)
     serializer_class = ContentItemSerializer
     permission_classes = [IsAdminOrSuperAdmin]
-
-    def get_queryset(self):
-        # Publicly accessible: only published & active
-        if self.request.method == 'GET':
-            return ContentItem.objects.filter(is_active=True, published=True).order_by('-publish_date')
-        # For POST (create), only staff can do it — handled by permission class
-        return super().get_queryset()
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        content_type = self.request.query_params.get('content_type')
+        if content_type:
+            queryset = queryset.filter(content_type=content_type)
+        return queryset
+
 class ContentItemDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = ContentItem.objects.all()
+    queryset = ContentItem.objects.filter(is_active=True)
     serializer_class = ContentItemSerializer
     permission_classes = [IsAdminOrSuperAdmin]
 
-    def get_object(self):
-        # Allow public viewing of published items
-        if self.request.method == 'GET' and self.kwargs.get('pk'):
-            pk = self.kwargs['pk']
-            try:
-                obj = ContentItem.objects.get(pk=pk, is_active=True, published=True)
-                return obj
-            except ContentItem.DoesNotExist:
-                pass
-        # For PUT/PATCH/DELETE — require staff
-        return super().get_object()
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False  # Soft delete
+    def perform_destroy(self, instance):
+        instance.is_active = False
         instance.save()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
-class ContentListAPIView(generics.ListAPIView):
-    """
-    Public API: List all published content items.
-    """
-    queryset = ContentItem.objects.filter(is_active=True, published=True).order_by('-publish_date')
-    serializer_class = ContentItemSerializer
-    permission_classes = []
+@method_decorator(cache_page(60 * 15), name='get')  # Cache for 15 minutes
+class ContentListAPIView(APIView):
+    permission_classes = [AllowAny]
+    def get(self, request, *args, **kwargs):
+        try:
+            queryset = ContentItem.objects.filter(is_active=True, published=True).order_by('-publish_date')
+            serializer = ContentItemSerializer(queryset, many=True, context={'request': request})
+            return Response({"results": serializer.data}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -24,6 +24,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('molek/', include('content.urls')),
     path('molek/users/', include('users.urls')),
-    path('molek/attendance/', include('attendance.urls')),
-
+    # path('molek/attendance/', include('attendance.urls')),
 ]

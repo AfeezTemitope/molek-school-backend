@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 @receiver(post_save, sender=Student)
 def send_student_credentials_to_parent(sender, instance, created, **kwargs):
     if created:
-        # ❌ OLD WAY: Trying to access raw_password directly
-        # raw_password = instance.raw_password  # ← This line fails
 
         # ✅ NEW WAY: Access via _raw_password (private attr)
         raw_password = getattr(instance, '_raw_password', None)
