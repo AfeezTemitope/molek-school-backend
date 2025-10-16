@@ -38,9 +38,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             student = user.student_profile
             data['user']['admission_number'] = student.admission_number
             data['user']['passport_url'] = student.passport.url if student.passport else None
+            data['user']['parent_email'] = student.parent_email
+            data['user']['parent_phone_number'] = student.parent_phone_number
         except Student.DoesNotExist:
             data['user']['admission_number'] = None
             data['user']['passport_url'] = None
+            data['user']['parent_email'] = None
+            data['user']['parent_phone_number'] = None
         return data
 
 class UserLoginSerializer(serializers.Serializer):
@@ -51,7 +55,6 @@ class UserLoginSerializer(serializers.Serializer):
         admission_number = attrs.get('admission_number')
         last_name = attrs.get('last_name')
 
-        # Validate admission_number format (e.g., 2025/SS1/SCI/A/001)
         if not re.match(r'^\d{4}/[A-Z0-9]+/[A-Za-z]+/[A-Z]/\d{3}$', admission_number):
             raise serializers.ValidationError({
                 'admission_number': f'Invalid format: {admission_number}. Expected: YYYY/CLASS/STREAM/SECTION/NNN (e.g., 2025/SS1/SCI/A/001)'
@@ -86,7 +89,9 @@ class UserLoginSerializer(serializers.Serializer):
                 'phone_number': user.phone_number,
                 'is_active': user.is_active,
                 'passport_url': student.passport.url if student.passport else None,
-                'admission_number': student.admission_number
+                'admission_number': student.admission_number,
+                'parent_email': student.parent_email,
+                'parent_phone_number': student.parent_phone_number
             }
         }
 
@@ -108,7 +113,10 @@ class StudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = ['id', 'user', 'admission_number', 'class_level', 'stream', 'section', 'class_name', 'passport_url', 'is_active']
+        fields = [
+            'id', 'user', 'admission_number', 'class_level', 'stream', 'section',
+            'class_name', 'passport_url', 'parent_email', 'parent_phone_number', 'is_active'
+        ]
         read_only_fields = ['id', 'admission_number', 'is_active']
 
     def get_passport_url(self, obj: Student) -> Optional[str]:
@@ -133,11 +141,11 @@ class StudentSerializer(serializers.ModelSerializer):
         if class_level and class_level not in valid_class_levels:
             raise serializers.ValidationError({'class_level': f'Invalid class level. Choose from: {", ".join(valid_class_levels)}'})
 
-        valid_streams: List[Optional[str]] = [choice[0] for choice in Student.STREAM_CHOICES]
+        valid_streams = [choice[0] for choice in Student.STREAM_CHOICES]
         if stream and stream not in valid_streams:
             raise serializers.ValidationError({'stream': f'Invalid stream. Choose from: {", ".join(valid_streams)}'})
 
-        valid_sections: List[Optional[str]] = [choice[0] for choice in Student.SECTION_CHOICES]
+        valid_sections = [choice[0] for choice in Student.SECTION_CHOICES]
         if section and section not in valid_sections:
             raise serializers.ValidationError({'section': f'Invalid section. Choose from: {", ".join(valid_sections)}'})
 

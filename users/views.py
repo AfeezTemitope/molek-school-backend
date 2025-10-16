@@ -1,6 +1,6 @@
 from rest_framework import status, views
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
@@ -11,7 +11,7 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import UserProfile, Student
 from .serializers import UserProfileSerializer, StudentSerializer, UserLoginSerializer, ChangePasswordSerializer
-from .permissions import IsSuperAdmin
+from .permissions import IsAdminOrSuperAdmin
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
@@ -29,7 +29,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 class UserViewSet(ModelViewSet):
     queryset = UserProfile.objects.filter(is_active=True)
     serializer_class = UserProfileSerializer
-    permission_classes = [IsSuperAdmin]
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -37,7 +37,7 @@ class UserViewSet(ModelViewSet):
 class StudentViewSet(ModelViewSet):
     queryset = Student.objects.filter(is_active=True).select_related('user')
     serializer_class = StudentSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -50,7 +50,7 @@ class LoginStudentView(APIView):
         return Response({"detail": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAdminOrSuperAdmin])
 @cache_page(60 * 5)
 def get_students_by_class(request):
     class_level = request.query_params.get('class_level')

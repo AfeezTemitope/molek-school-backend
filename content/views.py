@@ -1,17 +1,18 @@
 from rest_framework import generics, status
-from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from .models import ContentItem
 from .serializers import ContentItemSerializer
-from .permissions import IsAdminOrSuperAdmin
+from .permissions import IsTeacherAdminOrSuperAdmin, IsAdminOrSuperAdmin
+
 
 class ContentItemListCreateView(generics.ListCreateAPIView):
     queryset = ContentItem.objects.filter(is_active=True, published=True)
     serializer_class = ContentItemSerializer
-    permission_classes = [IsAdminOrSuperAdmin]
+    permission_classes = [IsTeacherAdminOrSuperAdmin]
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -32,9 +33,10 @@ class ContentItemDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.is_active = False
         instance.save()
 
-@method_decorator(cache_page(60 * 15), name='get')  # Cache for 15 minutes
+@method_decorator(cache_page(60 * 15), name='get')
 class ContentListAPIView(APIView):
     permission_classes = [AllowAny]
+
     def get(self, request, *args, **kwargs):
         try:
             queryset = ContentItem.objects.filter(is_active=True, published=True).order_by('-publish_date')

@@ -1,9 +1,11 @@
+from datetime import datetime
+
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from cloudinary.models import CloudinaryField
 
 class UserProfileManager(BaseUserManager):
-    def create_user(self, username, email, first_name, last_name, role='student', phone_number=None, password=None):
+    def create_user(self, username, email, first_name, last_name, role='teacher', phone_number=None, password=None):
         if not username:
             raise ValueError('Username is required')
         email = self.normalize_email(email)
@@ -36,7 +38,6 @@ class UserProfileManager(BaseUserManager):
 
 class UserProfile(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = (
-        ('student', 'Student'),
         ('teacher', 'Teacher'),
         ('admin', 'Admin'),
         ('superadmin', 'Superadmin'),
@@ -46,7 +47,7 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='teacher')
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -96,6 +97,8 @@ class Student(models.Model):
     class_level = models.CharField(max_length=10, choices=CLASS_LEVEL_CHOICES)
     stream = models.CharField(max_length=20, choices=STREAM_CHOICES, blank=True, null=True)
     section = models.CharField(max_length=1, choices=SECTION_CHOICES, blank=True, null=True)
+    parent_email = models.EmailField(blank=True, null=True)  # New field
+    parent_phone_number = models.CharField(max_length=15, blank=True, null=True)  # New field
     passport = CloudinaryField('image', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='students_created')
@@ -113,7 +116,7 @@ class Student(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.admission_number:
-            year = '2025'  # Adjust as needed
+            year = str(datetime.now().year)
             class_level = self.class_level
             stream = self.stream or 'GENERAL'
             section = self.section or 'A'

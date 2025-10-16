@@ -1,12 +1,10 @@
 from django import forms
 from django.contrib import admin
-
 from users.models import UserProfile
 from .models import ContentItem
 from cloudinary.uploader import upload
 from typing import Type, TypeVar, Dict
 
-# Define a TypeVar for the ContentItem model
 ContentItemT = TypeVar('ContentItemT', bound=ContentItem)
 
 class ContentItemAdminForm(forms.ModelForm):
@@ -20,7 +18,6 @@ class ContentItemAdminForm(forms.ModelForm):
         media = cleaned_data.get('media')
 
         if media and content_type:
-            # Define broad allowed extensions (Cloudinary handles conversion)
             image_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp']
             video_extensions = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv']
             file_extension = media.name.split('.')[-1].lower()
@@ -51,8 +48,8 @@ class ContentItemAdmin(admin.ModelAdmin):
         ('Publication', {
             'fields': ('published', 'is_active')
         }),
-        ('System Info', {
-            'fields': ('slug', 'publish_date', 'created_by', 'updated_at'),
+        ('Metadata', {
+            'fields': ('created_by', 'publish_date', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
@@ -60,14 +57,14 @@ class ContentItemAdmin(admin.ModelAdmin):
     def save_model(self, request, obj: ContentItem, form: Type[ContentItemAdminForm], change: bool) -> None:
         if not change:
             obj.created_by = request.user
-        if obj.media and not change:  # Only apply transformation on creation
-            transformation = {'fetch_format': 'webp'} if obj.content_type == 'image' else {'fetch_format': 'webm'}
+        if obj.media and not change:
+            transformation = {'fetch_format': 'webp'} if obj.content_type == 'image' else {'fetch_format': 'auto'}
             upload(obj.media.file, resource_type=obj.content_type, folder='content/media', **transformation)
         super().save_model(request, obj, form, change)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if not request.user.is_superuser:
+        if request.user.role != 'superadmin':
             return qs.filter(created_by=request.user)
         return qs
 
