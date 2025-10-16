@@ -19,11 +19,20 @@ class UserProfileManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, username, email, password=None, first_name='', last_name='', **extra_fields):
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
-        return self.create_user(username, email, password, first_name, last_name, **extra_fields)
-
+    def create_superuser(self, username, email, first_name, last_name, password, role='superadmin', phone_number=None):
+        user = self.create_user(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            phone_number=phone_number,
+            password=password
+        )
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(using=self._db)
+        return user
 
 class UserProfile(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = (

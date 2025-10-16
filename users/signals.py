@@ -52,8 +52,11 @@ def create_superuser(sender, **kwargs):
             User.objects.create_superuser(
                 username=username,
                 email=email,
-                password=password
+                password=password,
+                first_name="molek",
+                last_name="school"
             )
+
             logger.info(f"✅ Superuser '{username}' created successfully.")
         else:
             logger.info(f"ℹ️ Superuser '{username}' already exists.")
