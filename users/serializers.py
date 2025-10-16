@@ -1,17 +1,26 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import UserProfile, Student
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 import re
+from .models import UserProfile, Student
 
+
+# ==============================
+# CUSTOM JWT LOGIN SERIALIZER
+# ==============================
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """
+    Custom JWT serializer that adds 'role' to the token
+    and returns extended user details with student info and KYC fields.
+    """
+
     @classmethod
     def get_token(cls, user: UserProfile) -> RefreshToken:
-        token = super().get_token(user)
-        token['role'] = user.role
+        token = cast(RefreshToken, super().get_token(user))
+        token['role'] = user.role  # type: ignore
         return token
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
@@ -22,31 +31,66 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         user = authenticate(**credentials)
         if user is None:
             raise serializers.ValidationError('Invalid credentials')
+
         data = super().validate(attrs)
+
+        # Base user data with KYC fields
         data['user'] = {
             'id': user.id,
             'username': user.username,
             'email': user.email,
             'first_name': user.first_name,
             'last_name': user.last_name,
-            'full_name': f"{user.first_name} {user.last_name}".strip(),
+            'full_name': user.full_name,
             'role': user.role,
             'phone_number': user.phone_number,
-            'is_active': user.is_active
+            'is_active': user.is_active,
+            'age': user.age,
+            'sex': user.sex,
+            'address': user.address,
+            'state_of_origin': user.state_of_origin,
+            'local_govt_area': user.local_govt_area,
         }
+
+        # Attach student info if linked
         try:
             student = user.student_profile
-            data['user']['admission_number'] = student.admission_number
-            data['user']['passport_url'] = student.passport.url if student.passport else None
-            data['user']['parent_email'] = student.parent_email
-            data['user']['parent_phone_number'] = student.parent_phone_number
+            data['user'].update({
+                'admission_number': student.admission_number,
+                'passport_url': student.passport.url if student.passport else None,
+                'parent_email': student.parent_email,
+                'parent_phone_number': student.parent_phone_number,
+                'student_first_name': student.first_name,
+                'student_last_name': student.last_name,
+                'student_full_name': student.full_name,
+                'student_age': student.age,
+                'student_sex': student.sex,
+                'student_address': student.address,
+                'student_state_of_origin': student.state_of_origin,
+                'student_local_govt_area': student.local_govt_area,
+            })
         except Student.DoesNotExist:
-            data['user']['admission_number'] = None
-            data['user']['passport_url'] = None
-            data['user']['parent_email'] = None
-            data['user']['parent_phone_number'] = None
+            data['user'].update({
+                'admission_number': None,
+                'passport_url': None,
+                'parent_email': None,
+                'parent_phone_number': None,
+                'student_first_name': None,
+                'student_last_name': None,
+                'student_full_name': None,
+                'student_age': None,
+                'student_sex': None,
+                'student_address': None,
+                'student_state_of_origin': None,
+                'student_local_govt_area': None,
+            })
+
         return data
 
+
+# ==============================
+# STUDENT LOGIN (ADMISSION NO.)
+# ==============================
 class UserLoginSerializer(serializers.Serializer):
     admission_number = serializers.CharField(max_length=50)
     last_name = serializers.CharField(max_length=150)
@@ -63,10 +107,14 @@ class UserLoginSerializer(serializers.Serializer):
         try:
             student = Student.objects.get(
                 admission_number__iexact=admission_number,
-                user__last_name__iexact=last_name,
-                user__is_active=True
+                last_name__iexact=last_name,
+                is_active=True
             )
-            user = student.user
+            user = student.created_by
+            if not user or not user.is_active:
+                raise serializers.ValidationError({
+                    'detail': 'No active user account linked to this student'
+                })
         except Student.DoesNotExist:
             raise serializers.ValidationError({
                 'detail': f'No active student found with admission_number="{admission_number}" and last_name="{last_name}"'
@@ -84,40 +132,72 @@ class UserLoginSerializer(serializers.Serializer):
                 'email': user.email,
                 'first_name': user.first_name,
                 'last_name': user.last_name,
-                'full_name': f"{user.first_name} {user.last_name}".strip(),
+                'full_name': user.full_name,
                 'role': user.role,
                 'phone_number': user.phone_number,
                 'is_active': user.is_active,
+                'age': user.age,
+                'sex': user.sex,
+                'address': user.address,
+                'state_of_origin': user.state_of_origin,
+                'local_govt_area': user.local_govt_area,
                 'passport_url': student.passport.url if student.passport else None,
                 'admission_number': student.admission_number,
                 'parent_email': student.parent_email,
-                'parent_phone_number': student.parent_phone_number
+                'parent_phone_number': student.parent_phone_number,
+                'student_first_name': student.first_name,
+                'student_last_name': student.last_name,
+                'student_full_name': student.full_name,
+                'student_age': student.age,
+                'student_sex': student.sex,
+                'student_address': student.address,
+                'student_state_of_origin': student.state_of_origin,
+                'student_local_govt_area': student.local_govt_area,
             }
         }
 
+
+# ==============================
+# USER PROFILE SERIALIZER
+# ==============================
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'phone_number', 'is_active']
-        read_only_fields = ['id', 'is_active']
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
+            'role', 'phone_number', 'is_active',
+            'age', 'sex', 'address', 'state_of_origin', 'local_govt_area'
+        ]
+        read_only_fields = ['id', 'is_active', 'full_name']
 
     def validate_phone_number(self, value: Optional[str]) -> Optional[str]:
         if value and not re.match(r'^\+?1?\d{9,15}$', value):
             raise serializers.ValidationError('Invalid phone number format')
         return value
 
+    def validate_age(self, value: Optional[int]) -> Optional[int]:
+        if value is not None and (value <= 0 or value > 120):
+            raise serializers.ValidationError('Age must be between 1 and 120')
+        return value
+
+
+# ==============================
+# STUDENT SERIALIZER
+# ==============================
 class StudentSerializer(serializers.ModelSerializer):
-    user = UserProfileSerializer()
+    user = UserProfileSerializer(required=False, allow_null=True)
     passport_url = serializers.SerializerMethodField()
     class_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Student
         fields = [
-            'id', 'user', 'admission_number', 'class_level', 'stream', 'section',
-            'class_name', 'passport_url', 'parent_email', 'parent_phone_number', 'is_active'
+            'id', 'user', 'first_name', 'last_name', 'full_name', 'admission_number',
+            'class_level', 'stream', 'section', 'class_name', 'passport_url',
+            'parent_email', 'parent_phone_number', 'is_active',
+            'age', 'sex', 'address', 'state_of_origin', 'local_govt_area'
         ]
-        read_only_fields = ['id', 'admission_number', 'is_active']
+        read_only_fields = ['id', 'admission_number', 'is_active', 'full_name']
 
     def get_passport_url(self, obj: Student) -> Optional[str]:
         if obj.passport:
@@ -136,6 +216,8 @@ class StudentSerializer(serializers.ModelSerializer):
         class_level = data.get('class_level')
         stream = data.get('stream')
         section = data.get('section')
+        parent_phone_number = data.get('parent_phone_number')
+        age = data.get('age')
 
         valid_class_levels = [choice[0] for choice in Student.CLASS_LEVEL_CHOICES]
         if class_level and class_level not in valid_class_levels:
@@ -149,8 +231,18 @@ class StudentSerializer(serializers.ModelSerializer):
         if section and section not in valid_sections:
             raise serializers.ValidationError({'section': f'Invalid section. Choose from: {", ".join(valid_sections)}'})
 
+        if parent_phone_number and not re.match(r'^\+?1?\d{9,15}$', parent_phone_number):
+            raise serializers.ValidationError({'parent_phone_number': 'Invalid phone number format'})
+
+        if age is not None and (age <= 0 or age > 120):
+            raise serializers.ValidationError({'age': 'Age must be between 1 and 120'})
+
         return data
 
+
+# ==============================
+# CHANGE PASSWORD SERIALIZER
+# ==============================
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)

@@ -1,8 +1,8 @@
 from datetime import datetime
-
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from cloudinary.models import CloudinaryField
+
 
 class UserProfileManager(BaseUserManager):
     def create_user(self, username, email, first_name, last_name, role='teacher', phone_number=None, password=None):
@@ -36,6 +36,7 @@ class UserProfileManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
+
 class UserProfile(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = (
         ('teacher', 'Teacher'),
@@ -43,10 +44,20 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
         ('superadmin', 'Superadmin'),
     )
 
+    SEX_CHOICES = (
+        ('male', 'Male'),
+        ('female', 'Female'),
+    )
+
     username = models.CharField(max_length=150, unique=True)
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
+    age = models.PositiveIntegerField(null=True, blank=True)
+    sex = models.CharField(max_length=10, choices=SEX_CHOICES, null=True, blank=True)
+    address = models.TextField(blank=True, null=True)
+    state_of_origin = models.CharField(max_length=100, blank=True, null=True)
+    local_govt_area = models.CharField(max_length=100, blank=True, null=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='teacher')
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     is_active = models.BooleanField(default=True)
@@ -71,6 +82,11 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.username
 
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+
 class Student(models.Model):
     CLASS_LEVEL_CHOICES = (
         ('JSS1', 'Junior Secondary 1'),
@@ -92,16 +108,33 @@ class Student(models.Model):
         ('C', 'C'),
     )
 
-    user = models.OneToOneField(UserProfile, on_delete=models.CASCADE, related_name='student_profile')
+    SEX_CHOICES = (
+        ('male', 'Male'),
+        ('female', 'Female'),
+    )
+
+    first_name = models.CharField(max_length=150, null=True)
+    last_name = models.CharField(max_length=150, null=True)
+    age = models.PositiveIntegerField(null=True, blank=True)
+    sex = models.CharField(max_length=10, choices=SEX_CHOICES, null=True, blank=True)
+    address = models.TextField(blank=True, null=True)
+    state_of_origin = models.CharField(max_length=100, blank=True, null=True)
+    local_govt_area = models.CharField(max_length=100, blank=True, null=True)
     admission_number = models.CharField(max_length=50, unique=True)
     class_level = models.CharField(max_length=10, choices=CLASS_LEVEL_CHOICES)
     stream = models.CharField(max_length=20, choices=STREAM_CHOICES, blank=True, null=True)
     section = models.CharField(max_length=1, choices=SECTION_CHOICES, blank=True, null=True)
-    parent_email = models.EmailField(blank=True, null=True)  # New field
-    parent_phone_number = models.CharField(max_length=15, blank=True, null=True)  # New field
+    parent_email = models.EmailField(blank=True, null=True)
+    parent_phone_number = models.CharField(max_length=15, blank=True, null=True)
     passport = CloudinaryField('image', blank=True, null=True)
     is_active = models.BooleanField(default=True)
-    created_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='students_created')
+    created_by = models.ForeignKey(
+        UserProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='students_created'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -125,4 +158,8 @@ class Student(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.user.username} ({self.admission_number})"
+        return f"{self.full_name} ({self.admission_number})"
+
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()

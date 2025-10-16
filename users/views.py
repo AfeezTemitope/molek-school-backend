@@ -1,4 +1,4 @@
-from rest_framework import status, views
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
@@ -7,24 +7,21 @@ from rest_framework.views import APIView
 from django.views.decorators.cache import cache_page
 from django.utils.decorators import method_decorator
 from django.core.cache import cache
-from django.contrib.auth import authenticate
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import UserProfile, Student
-from .serializers import UserProfileSerializer, StudentSerializer, UserLoginSerializer, ChangePasswordSerializer
+from .serializers import (
+    CustomTokenObtainPairSerializer,
+    UserProfileSerializer,
+    StudentSerializer,
+    UserLoginSerializer,
+    ChangePasswordSerializer
+)
 from .permissions import IsAdminOrSuperAdmin
 
+
 class CustomTokenObtainPairView(TokenObtainPairView):
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.user
-        token = serializer.validated_data
-        user_data = UserProfileSerializer(user, context={'request': request}).data
-        return Response({
-            'access': str(token['access']),
-            'refresh': str(token['refresh']),
-            'user': user_data
-        }, status=status.HTTP_200_OK)
+    serializer_class = CustomTokenObtainPairSerializer
+
 
 class UserViewSet(ModelViewSet):
     queryset = UserProfile.objects.filter(is_active=True)
@@ -34,6 +31,7 @@ class UserViewSet(ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+
 class StudentViewSet(ModelViewSet):
     queryset = Student.objects.filter(is_active=True).select_related('user')
     serializer_class = StudentSerializer
@@ -42,12 +40,14 @@ class StudentViewSet(ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+
 class LoginStudentView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = UserLoginSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             return Response(serializer.validated_data, status=status.HTTP_200_OK)
         return Response({"detail": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminOrSuperAdmin])
@@ -73,6 +73,7 @@ def get_students_by_class(request):
     cache.set(cache_key, serializer.data, timeout=60 * 5)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
+
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -86,6 +87,7 @@ class UpdateProfileView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 @method_decorator(cache_page(60 * 15), name='get')
 class ExportStudentDataView(APIView):
     permission_classes = [IsAuthenticated]
@@ -98,6 +100,7 @@ class ExportStudentDataView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Student.DoesNotExist:
             return Response({"detail": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND)
+
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
