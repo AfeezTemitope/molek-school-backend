@@ -1,12 +1,17 @@
-from rest_framework import generics, status
+from rest_framework import generics, status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from .models import ContentItem
 from .serializers import ContentItemSerializer
 from .permissions import IsTeacherAdminOrSuperAdmin, IsAdminOrSuperAdmin
+
+class ContentItemViewSet(viewsets.ModelViewSet):
+    queryset = ContentItem.objects.all()
+    serializer_class = ContentItemSerializer
+    permission_classes = [IsAdminOrSuperAdmin]
 
 
 class ContentItemListCreateView(generics.ListCreateAPIView):

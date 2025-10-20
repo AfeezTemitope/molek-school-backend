@@ -35,7 +35,12 @@ ALLOWED_HOSTS = [
 ]
 # CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
 # print("ALLOWED_HOSTS:", config('ALLOWED_HOSTS', 'localhost'))
-CSRF_TRUSTED_ORIGINS = ['https://molek.netlify.app/', 'https://molek-school-backend-production.up.railway.app', 'https://molek-school-web-portal-front-end.vercel.app',]
+CSRF_TRUSTED_ORIGINS = ['https://molek.netlify.app',
+                        'https://molek-school-backend-production.up.railway.app',
+                        'https://molek-school-web-portal-front-end.vercel.app',
+                        'http://localhost:5173',
+                        'http://127.0.0.1:5173',
+                        ]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -47,6 +52,12 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5500',
 ]
 CORS_ALLOW_CREDENTIALS = True
+SESSION_COOKIE_SAMESITE = 'Lax'  # Allows cross-origin cookies in dev
+
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False
+LOGIN_REDIRECT_URL = '/admin/'
+
 
 
 # Application definition
@@ -69,14 +80,15 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.middleware.security.SecurityMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+
 ]
 
 ROOT_URLCONF = 'molekSchool.urls'
@@ -164,14 +176,15 @@ AUTH_USER_MODEL = 'users.UserProfile'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',  # ✅ Use this for admin
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',  # ✅ Restrict access
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
 }
+
 
 from datetime import timedelta
 SIMPLE_JWT = {

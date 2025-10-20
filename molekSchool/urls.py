@@ -16,13 +16,20 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework.routers import DefaultRouter
+from users.views import UserProfileViewSet, StudentViewSet
+from content.views import ContentItemViewSet
 
-from users.views import CustomTokenObtainPairView
+router = DefaultRouter()
+router.register(r'userprofile', UserProfileViewSet)
+router.register(r'contentitem', ContentItemViewSet)
+router.register(r'students', StudentViewSet)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    path('api/', include(router.urls)),
     path('molek/', include('content.urls')),
     path('molek/users/', include('users.urls')),
-    # path('molek/attendance/', include('attendance.urls')),
+
 ]
