@@ -36,6 +36,7 @@ ALLOWED_HOSTS = [
 # CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
 # print("ALLOWED_HOSTS:", config('ALLOWED_HOSTS', 'localhost'))
 CSRF_TRUSTED_ORIGINS = ['https://molek.netlify.app',
+                        'https://molek-admin.vercel.app',
                         'https://molek-school-backend-production.up.railway.app',
                         'https://molek-school-web-portal-front-end.vercel.app',
                         'http://localhost:5173',
@@ -44,6 +45,7 @@ CSRF_TRUSTED_ORIGINS = ['https://molek.netlify.app',
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://molek-admin.vercel.app",
     'https://molek-school-backend-production.up.railway.app',
     'https://molek-school-web-portal-front-end.vercel.app',
     'https://molek.netlify.app',
