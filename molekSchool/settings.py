@@ -58,29 +58,39 @@ CORS_ALLOWED_ORIGINS = [
 
 DJANGO_ENV = config('DJANGO_ENV', default='dev')
 
-CSRF_COOKIE_NAME = 'csrftoken'
-
+CSRF_COOKIE_NAME = 'csrftoken'  # Matches frontend expectation
 
 if DJANGO_ENV == 'prod':
+    DEBUG = False
+
+    # ✅ Secure cookies for HTTPS
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    DEBUG = False
+
+    # ✅ Cross-origin cookie support
+    SESSION_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SAMESITE = 'None'
+
 else:
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SECURE = False
     DEBUG = True
 
-CORS_ALLOW_CREDENTIALS = True
-SESSION_COOKIE_SAMESITE = 'None'  # Allows cross-origin cookies in dev
-# SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SAMESITE = 'None'
-CSRF_COOKIE_HTTPONLY = False
-LOGIN_REDIRECT_URL = '/admin/'
+    # 🔓 Dev mode: allow insecure cookies
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
 
+    # 🔓 Dev mode: still allow cross-origin testing
+    SESSION_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SAMESITE = 'None'
+# ✅ Allow frontend to read CSRF token
+CSRF_COOKIE_HTTPONLY = False
+# ✅ Enable credentials for cross-origin requests
+CORS_ALLOW_CREDENTIALS = True
+# ✅ Accept CSRF header from frontend
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'X-CSRFToken',
 ]
-
+# ✅ Redirect after login (used by Django admin)
+LOGIN_REDIRECT_URL = '/admin/'
 
 
 
