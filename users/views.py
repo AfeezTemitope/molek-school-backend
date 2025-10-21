@@ -44,6 +44,8 @@ def debug_cookies(request):
     logger.info(f"Method: {request.method}")
     logger.info(f"Cookies: {request.COOKIES}")
     logger.info(f"Headers: {dict(request.headers)}")
+    print("POST cookies:", request.COOKIES)
+    print("POST headers:", request.headers)
 
     return JsonResponse({
         "message": "Debug login trace",

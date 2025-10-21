@@ -71,9 +71,9 @@ else:
     DEBUG = True
 
 CORS_ALLOW_CREDENTIALS = True
-SESSION_COOKIE_SAMESITE = 'Lax'  # Allows cross-origin cookies in dev
+SESSION_COOKIE_SAMESITE = 'None'  # Allows cross-origin cookies in dev
 # SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_HTTPONLY = False
 LOGIN_REDIRECT_URL = '/admin/'
 
