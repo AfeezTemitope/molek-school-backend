@@ -34,12 +34,22 @@ def csrf(request):
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-@csrf_exempt
-def debug_cookies(request):
+import logging
+
+logger = logging.getLogger(__name__)
+
+@csrf_exempt  # Only for debugging; remove in production
+def debug_login(request):
+    logger.info("🔐 Login attempt received")
+    logger.info(f"Method: {request.method}")
+    logger.info(f"Cookies: {request.COOKIES}")
+    logger.info(f"Headers: {dict(request.headers)}")
+
     return JsonResponse({
+        "message": "Debug login trace",
+        "method": request.method,
         "cookies": request.COOKIES,
         "headers": dict(request.headers),
-        "method": request.method,
     })
 
 
