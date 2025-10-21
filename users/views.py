@@ -39,7 +39,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 @csrf_exempt  # Only for debugging; remove in production
-def debug_login(request):
+def debug_cookies(request):
     logger.info("🔐 Login attempt received")
     logger.info(f"Method: {request.method}")
     logger.info(f"Cookies: {request.COOKIES}")
