@@ -17,11 +17,19 @@ from .serializers import (
     ChangePasswordSerializer
 )
 from .permissions import IsAdminOrSuperAdmin
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.http import JsonResponse
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializer
     permission_classes = [IsAdminOrSuperAdmin]
+
+
+
+@ensure_csrf_cookie
+def csrf(request):
+    return JsonResponse({'message': 'CSRF cookie set'})
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
