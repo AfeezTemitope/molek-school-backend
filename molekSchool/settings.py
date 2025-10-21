@@ -28,68 +28,36 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
+DJANGO_ENV = config('DJANGO_ENV', default='dev')
+
 ALLOWED_HOSTS = [
-    'molek-school-web-portal-front-end.vercel.app',
+    '127.0.0.1', 'localhost',
     'molek-school-backend-production.up.railway.app',
-    '127.0.0.1',
+    'molek-school-web-portal-front-end.vercel.app',
+    'molek-admin.vercel.app',
     'molek.netlify.app',
-    'localhost'
 ]
-# CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
-# print("ALLOWED_HOSTS:", config('ALLOWED_HOSTS', 'localhost'))
-CSRF_TRUSTED_ORIGINS = ['https://molek.netlify.app',
-                        'https://molek-admin.vercel.app',
-                        'https://molek-school-backend-production.up.railway.app',
-                        'https://molek-school-web-portal-front-end.vercel.app',
-                        'http://localhost:5173',
-                        'http://127.0.0.1:5173',
-                        ]
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://molek-admin.vercel.app",
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://molek-admin.vercel.app',
     'https://molek-school-backend-production.up.railway.app',
     'https://molek-school-web-portal-front-end.vercel.app',
     'https://molek.netlify.app',
-    'http://localhost:63342',
-    'http://localhost:5500',
-    'http://127.0.0.1:5500',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
 ]
 
-DJANGO_ENV = config('DJANGO_ENV', default='dev')
-
-CSRF_COOKIE_NAME = 'csrftoken'  # Matches frontend expectation
-
-if DJANGO_ENV == 'prod':
-    DEBUG = False
-
-    # ✅ Secure cookies for HTTPS
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-
-    # ✅ Cross-origin cookie support
-    SESSION_COOKIE_SAMESITE = 'None'
-    CSRF_COOKIE_SAMESITE = 'None'
-
-else:
-    DEBUG = True
-
-    # 🔓 Dev mode: allow insecure cookies
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SECURE = False
-
-    # 🔓 Dev mode: still allow cross-origin testing
-    SESSION_COOKIE_SAMESITE = 'None'
-    CSRF_COOKIE_SAMESITE = 'None'
-# ✅ Allow frontend to read CSRF token
-CSRF_COOKIE_HTTPONLY = False
-# ✅ Enable credentials for cross-origin requests
+CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True
-# ✅ Accept CSRF header from frontend
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    'X-CSRFToken',
-]
-# ✅ Redirect after login (used by Django admin)
+CORS_ALLOW_HEADERS = list(default_headers) + ['X-CSRFToken']
+
+CSRF_COOKIE_NAME = "csrftoken"
+CSRF_COOKIE_HTTPONLY = False  # frontend can read it
+CSRF_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
 LOGIN_REDIRECT_URL = '/admin/'
 
 
