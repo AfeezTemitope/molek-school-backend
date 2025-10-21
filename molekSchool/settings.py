@@ -58,6 +58,9 @@ CORS_ALLOWED_ORIGINS = [
 
 DJANGO_ENV = config('DJANGO_ENV', default='dev')
 
+CSRF_COOKIE_NAME = 'csrftoken'
+
+
 if DJANGO_ENV == 'prod':
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
