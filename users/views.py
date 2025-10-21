@@ -1,3 +1,4 @@
+from django.views.decorators.http import require_GET
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -27,9 +28,18 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
 
 
+@require_GET
 @ensure_csrf_cookie
 def csrf(request):
-    return JsonResponse({'message': 'CSRF cookie set'})
+    """
+    Returns a JSON response and ensures a CSRF cookie is set.
+    Used by frontend to fetch a valid CSRF token for session-based login.
+    """
+    token = request.META.get("CSRF_COOKIE", None)
+    return JsonResponse({
+        "message": "CSRF cookie set",
+        "csrftoken": token,
+    })
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
