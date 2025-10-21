@@ -31,6 +31,17 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 def csrf(request):
     return JsonResponse({'message': 'CSRF cookie set'})
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+@csrf_exempt
+def debug_cookies(request):
+    return JsonResponse({
+        "cookies": request.COOKIES,
+        "headers": dict(request.headers),
+        "method": request.method,
+    })
+
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
