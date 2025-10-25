@@ -18,6 +18,8 @@ from .serializers import (
     ChangePasswordSerializer
 )
 import logging
+from rest_framework import filters
+from django_filters.rest_framework import DjangoFilterBackend
 
 logger = logging.getLogger(__name__)
 from .permissions import IsAdminOrSuperAdmin
@@ -39,47 +41,36 @@ def csrf(request):
     logger.info(f"✅ CSRF cookie issued: {token}")
     return JsonResponse({"message": "CSRF cookie set", "csrftoken": token})
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-
-
-#
-# @csrf_exempt  # Only for debugging; remove in production
-# def debug_cookies(request):
-#     logger.info("🔐 Login attempt received")
-#     logger.info(f"Method: {request.method}")
-#     logger.info(f"Cookies: {request.COOKIES}")
-#     logger.info(f"Headers: {dict(request.headers)}")
-#     print("POST cookies:", request.COOKIES)
-#     print("POST headers:", request.headers)
-#
-#     return JsonResponse({
-#         "message": "Debug login trace",
-#         "method": request.method,
-#         "cookies": request.COOKIES,
-#         "headers": dict(request.headers),
-#     })
-
-
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
-
-class UserViewSet(ModelViewSet):
-    queryset = UserProfile.objects.filter(is_active=True)
+class UserViewSet(ModelViewSet):  # Merged from UserProfileViewSet + UserViewSet
+    queryset = UserProfile.objects.filter(is_active=True).select_related('groups', 'user_permissions')
     serializer_class = UserProfileSerializer
     permission_classes = [IsAdminOrSuperAdmin]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    search_fields = ['username', 'email', 'first_name', 'last_name', 'state_of_origin']
+    filterset_fields = ['role', 'is_active', 'sex', 'state_of_origin']
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)  # Optional: track updates
 
 class StudentViewSet(ModelViewSet):
     queryset = Student.objects.filter(is_active=True).select_related('user')
     serializer_class = StudentSerializer
     permission_classes = [IsAdminOrSuperAdmin]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    search_fields = ['admission_number', 'first_name', 'last_name', 'state_of_origin']
+    filterset_fields = ['class_level', 'stream', 'section', 'is_active', 'sex', 'state_of_origin']
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)  # Optional
 
 class LoginStudentView(APIView):
     def post(self, request, *args, **kwargs):

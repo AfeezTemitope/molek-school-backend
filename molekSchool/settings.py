@@ -51,8 +51,9 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:5173',
 ]
 
-CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
+# CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_HEADERS = list(default_headers) + ['X-CSRFToken']
 
 CSRF_COOKIE_NAME = "csrftoken"
@@ -182,10 +183,11 @@ AUTH_USER_MODEL = 'users.UserProfile'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.SessionAuthentication',  # ✅ Use this for admin
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # Add this for frontend JWT
+        'rest_framework.authentication.SessionAuthentication',  # Keep for admin
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',  # ✅ Restrict access
+        'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,

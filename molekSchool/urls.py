@@ -17,19 +17,18 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from users.views import UserProfileViewSet, StudentViewSet, csrf
-from content.views import ContentItemViewSet
+from users.views import UserViewSet, StudentViewSet, csrf
+from content.views import ContentItemViewSet  # Assuming this exists
 
 router = DefaultRouter()
-router.register(r'userprofile', UserProfileViewSet)
-router.register(r'contentitem', ContentItemViewSet)
-router.register(r'students', StudentViewSet)
+router.register(r'userprofile', UserViewSet, basename='userprofile')  # /api/userprofile/
+router.register(r'students', StudentViewSet, basename='student')      # /api/students/
+router.register(r'contentitem', ContentItemViewSet, basename='contentitem')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("api/csrf/", csrf),
-    path('api/', include(router.urls)),
-    path('molek/', include('content.urls')),
-    path('molek/users/', include('users.urls')),
-
+    path('api/csrf/', csrf),
+    path('api/', include(router.urls)),  # All ViewSets here
+    path('molek/users/', include('users.urls')),  # Non-ViewSet paths (login, etc.)
+    path('molek/', include('content.urls')),  # If content app has its own
 ]
