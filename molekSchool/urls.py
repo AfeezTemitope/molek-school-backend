@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from users.views import UserProfileViewSet, StudentViewSet, csrf, debug_cookies
+from users.views import UserProfileViewSet, StudentViewSet, csrf
 from content.views import ContentItemViewSet
 
 router = DefaultRouter()
@@ -28,8 +28,6 @@ router.register(r'students', StudentViewSet)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/csrf/", csrf),
-    path("api/debug-cookies/", debug_cookies),
-
     path('api/', include(router.urls)),
     path('molek/', include('content.urls')),
     path('molek/users/', include('users.urls')),

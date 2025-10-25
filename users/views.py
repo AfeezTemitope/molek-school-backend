@@ -17,6 +17,9 @@ from .serializers import (
     UserLoginSerializer,
     ChangePasswordSerializer
 )
+import logging
+
+logger = logging.getLogger(__name__)
 from .permissions import IsAdminOrSuperAdmin
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import JsonResponse
@@ -39,25 +42,23 @@ def csrf(request):
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import logging
 
-logger = logging.getLogger(__name__)
-
-@csrf_exempt  # Only for debugging; remove in production
-def debug_cookies(request):
-    logger.info("🔐 Login attempt received")
-    logger.info(f"Method: {request.method}")
-    logger.info(f"Cookies: {request.COOKIES}")
-    logger.info(f"Headers: {dict(request.headers)}")
-    print("POST cookies:", request.COOKIES)
-    print("POST headers:", request.headers)
-
-    return JsonResponse({
-        "message": "Debug login trace",
-        "method": request.method,
-        "cookies": request.COOKIES,
-        "headers": dict(request.headers),
-    })
+#
+# @csrf_exempt  # Only for debugging; remove in production
+# def debug_cookies(request):
+#     logger.info("🔐 Login attempt received")
+#     logger.info(f"Method: {request.method}")
+#     logger.info(f"Cookies: {request.COOKIES}")
+#     logger.info(f"Headers: {dict(request.headers)}")
+#     print("POST cookies:", request.COOKIES)
+#     print("POST headers:", request.headers)
+#
+#     return JsonResponse({
+#         "message": "Debug login trace",
+#         "method": request.method,
+#         "cookies": request.COOKIES,
+#         "headers": dict(request.headers),
+#     })
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
