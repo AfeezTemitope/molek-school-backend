@@ -44,8 +44,10 @@ def csrf(request):
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
-class UserViewSet(ModelViewSet):  # Merged from UserProfileViewSet + UserViewSet
-    queryset = UserProfile.objects.filter(is_active=True).select_related('groups', 'user_permissions')
+class UserViewSet(ModelViewSet):
+    queryset = UserProfile.objects.filter(is_active=True) \
+        .select_related('created_by', 'student_profile') \
+        .prefetch_related('groups', 'user_permissions')
     serializer_class = UserProfileSerializer
     permission_classes = [IsAdminOrSuperAdmin]
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
