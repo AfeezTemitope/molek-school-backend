@@ -66,8 +66,17 @@ class StudentViewSet(ModelViewSet):
     search_fields = ['admission_number', 'first_name', 'last_name', 'state_of_origin']
     filterset_fields = ['class_level', 'stream', 'section', 'is_active', 'sex', 'state_of_origin']
 
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+    # def perform_create(self, serializer):
+    #     serializer.save(created_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        try:
+            logger.info(f"POST /api/students/ started: {request.data}")
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Crash in StudentViewSet.create: {str(e)} | Data: {request.data}", exc_info=True)
+            return Response({"detail": "Internal server error—check logs"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)  # Optional

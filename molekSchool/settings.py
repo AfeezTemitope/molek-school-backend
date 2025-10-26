@@ -51,10 +51,20 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:5173',
 ]
 
-# CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
+CORS_ALLOWED_ORIGINS = [
+    'https://admin.molekschool.com',
+    'https://molekschool.com',
+    'https://molek-admin.vercel.app',
+    'https://molek-school-backend-production.up.railway.app',
+    'https://molek-school-web-portal-front-end.vercel.app',
+    'https://molek.netlify.app',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_HEADERS = list(default_headers) + ['X-CSRFToken']
+
 
 CSRF_COOKIE_NAME = "csrftoken"
 CSRF_COOKIE_HTTPONLY = False  # frontend can read it
