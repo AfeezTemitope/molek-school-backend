@@ -17,18 +17,21 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from users.views import UserViewSet, StudentViewSet, csrf
-from content.views import ContentItemViewSet  # Assuming this exists
+from users.views import UserViewSet, StudentViewSet
+from content.views import ContentItemViewSet
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 router = DefaultRouter()
-router.register(r'userprofile', UserViewSet, basename='userprofile')  # /api/userprofile/
-router.register(r'students', StudentViewSet, basename='student')      # /api/students/
+router.register(r'userprofile', UserViewSet, basename='userprofile')
+router.register(r'students', StudentViewSet, basename='student')
 router.register(r'contentitem', ContentItemViewSet, basename='contentitem')
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/csrf/', csrf),
-    path('api/', include(router.urls)),  # All ViewSets here
-    path('molek/users/', include('users.urls')),  # Non-ViewSet paths (login, etc.)
-    path('molek/', include('content.urls')),  # If content app has its own
+    path('admin/', admin.site.urls),  # Django admin
+    # path('api/csrf/', csrf),
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/', include(router.urls)),  # ViewSets
+    path('molek/users/', include('users.urls')),  # Custom endpoints
+    path('molek/', include('content.urls')),
 ]
