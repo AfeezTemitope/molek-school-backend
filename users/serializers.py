@@ -87,10 +87,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         return data
 
-
-# ==============================
-# STUDENT LOGIN (ADMISSION NO.)
-# ==============================
 class UserLoginSerializer(serializers.Serializer):
     admission_number = serializers.CharField(max_length=50)
     last_name = serializers.CharField(max_length=150)
@@ -153,17 +149,21 @@ class UserLoginSerializer(serializers.Serializer):
             }
         }
 
+import re
+from rest_framework import serializers
+from .models import UserProfile
+from typing import Optional
 
-# ==============================
-# USER PROFILE SERIALIZER
-# ==============================
 class UserProfileSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, min_length=8)
+
     class Meta:
         model = UserProfile
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'role', 'phone_number', 'is_active',
-            'age', 'sex', 'address', 'state_of_origin', 'local_govt_area'
+            'age', 'sex', 'address', 'state_of_origin', 'local_govt_area',
+            'password',  # ✅ must include this
         ]
         read_only_fields = ['id', 'is_active', 'full_name']
 
@@ -177,10 +177,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Age must be between 1 and 120')
         return value
 
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        user = UserProfile(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_password('defaultpass123')  # fallback password
+        user.save()
+        return user
 
-# ==============================
-# STUDENT SERIALIZER
-# ==============================
+
 class StudentSerializer(serializers.ModelSerializer):
     user = UserProfileSerializer(required=False, allow_null=True)
     passport_url = serializers.SerializerMethodField()
@@ -236,10 +243,6 @@ class StudentSerializer(serializers.ModelSerializer):
 
         return data
 
-
-# ==============================
-# CHANGE PASSWORD SERIALIZER
-# ==============================
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)

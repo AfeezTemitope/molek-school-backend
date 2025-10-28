@@ -33,13 +33,6 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
 
 
-# @require_GET
-# @ensure_csrf_cookie
-# def csrf(request):
-#     """Set CSRF cookie and return it for frontend"""
-#     token = request.META.get("CSRF_COOKIE", None)
-#     logger.info(f"✅ CSRF cookie issued: {token}")
-#     return JsonResponse({"message": "CSRF cookie set", "csrftoken": token})
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer

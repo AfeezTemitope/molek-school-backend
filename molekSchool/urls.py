@@ -27,11 +27,11 @@ router.register(r'students', StudentViewSet, basename='student')
 router.register(r'contentitem', ContentItemViewSet, basename='contentitem')
 
 urlpatterns = [
-    path('admin/', admin.site.urls),  # Django admin
+    path('admin/', admin.site.urls),
     # path('api/csrf/', csrf),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/', include(router.urls)),  # ViewSets
-    path('molek/users/', include('users.urls')),  # Custom endpoints
+    path('api/', include(router.urls)),
+    path('molek/users/', include('users.urls')),
     path('molek/', include('content.urls')),
 ]
