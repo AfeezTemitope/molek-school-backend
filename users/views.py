@@ -1,7 +1,7 @@
 from django.views.decorators.http import require_GET
 from rest_framework import status, viewsets
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
@@ -30,9 +30,6 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializer
     permission_classes = [IsAdminOrSuperAdmin]
-
-
-
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
@@ -77,6 +74,7 @@ class StudentViewSet(ModelViewSet):
         serializer.save(updated_by=self.request.user)  # Optional
 
 class LoginStudentView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
         serializer = UserLoginSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
