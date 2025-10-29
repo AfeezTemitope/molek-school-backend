@@ -19,12 +19,14 @@ ALLOWED_HOSTS = [
     "molek.netlify.app",
     "admin.molekschool.com",
     "molekschool.com",
+    "www.molekschool.com",
 ]
 
 # ✅ CORS + CSRF
 CSRF_TRUSTED_ORIGINS = [
     "https://admin.molekschool.com",
     "https://molekschool.com",
+    "https://www.molekschool.com",
     "https://molek-admin.vercel.app",
     "https://molek-school-backend-production.up.railway.app",
     "https://molek-school-web-portal-front-end.vercel.app",
