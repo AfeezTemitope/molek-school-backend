@@ -33,5 +33,6 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include(router.urls)),
     path('molek/users/', include('users.urls')),
+    path('molek/galleries/', include('gallery.urls')),
     path('molek/', include('content.urls')),
 ]

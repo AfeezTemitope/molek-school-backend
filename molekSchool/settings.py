@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     # Local apps
     "users",
     "content",
+    "gallery",
 
     # Third-party
     "corsheaders",

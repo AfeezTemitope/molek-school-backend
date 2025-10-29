@@ -23,17 +23,15 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 logger = logging.getLogger(__name__)
 from .permissions import IsAdminOrSuperAdmin
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.http import JsonResponse
+
+
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializer
     permission_classes = [IsAdminOrSuperAdmin]
-
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
-
 class UserViewSet(ModelViewSet):
     queryset = UserProfile.objects.filter(is_active=True) \
         .select_related('created_by', 'student_profile') \
@@ -49,7 +47,6 @@ class UserViewSet(ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)  # Optional: track updates
-
 class StudentViewSet(ModelViewSet):
     queryset = Student.objects.filter(is_active=True).select_related('user')
     serializer_class = StudentSerializer
@@ -72,7 +69,6 @@ class StudentViewSet(ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)  # Optional
-
 class LoginStudentView(APIView):
     permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
