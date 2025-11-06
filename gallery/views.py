@@ -5,41 +5,59 @@ from rest_framework.views import APIView
 from .models import Gallery
 from .serializers import GallerySerializer, GalleryCreateSerializer
 from .permissions import IsAdminOrSuperAdmin
+import mimetypes  # For type detection
 
 
-class GalleryListCreateView(APIView):
-    permission_classes = [IsAdminOrSuperAdmin]  # Default for non-GET methods
+class MediaUploadMixin:
+    """Reusable mixin for Cloudinary uploads (images/videos)."""
+
+    @staticmethod
+    def upload_media(file_obj, folder="galleries"):
+        # Auto-detect resource_type
+        mime_type, _ = mimetypes.guess_type(file_obj.name)
+        resource_type = "auto"  # Cloudinary detects image/video
+        if mime_type and "video/" in mime_type:
+            resource_type = "video"
+        elif mime_type and "image/" in mime_type:
+            resource_type = "image"
+
+        upload_result = cloudinary.uploader.upload(
+            file_obj,
+            folder=folder,
+            resource_type=resource_type
+        )
+        return upload_result['secure_url']
+
+
+class GalleryListCreateView(APIView, MediaUploadMixin):  # Inherit reusable upload logic
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def get_permissions(self):
         if self.request.method == 'GET':
-            return [permissions.AllowAny()]  # Public access for listing galleries
-        return super().get_permissions()  # Use custom permission for POST
+            return [permissions.AllowAny()]
+        return super().get_permissions()
 
     def get(self, request):
-        """List all galleries (with image URLs preloaded) - Public"""
+        """List all galleries (with media URLs preloaded) - Public"""
         galleries = Gallery.objects.all()
         serializer = GallerySerializer(galleries, many=True)
         return Response(serializer.data)
 
     def post(self, request):
-        """Upload 1–20 images and create a gallery - Authenticated teachers/admins/superadmins"""
+        """Upload 1–20 media files (images/videos) and create a gallery - Authenticated admins"""
         serializer = GalleryCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        images = serializer.validated_data['images']
+        media_files = serializer.validated_data['media']
         title = serializer.validated_data.get('title', '')
 
         uploaded_urls = []
         try:
-            # Upload all images to Cloudinary
-            for image in images:
-                upload_result = cloudinary.uploader.upload(
-                    image,
-                    folder="galleries",  # Optional: organize in Cloudinary
-                    resource_type="image"
-                )
-                uploaded_urls.append(upload_result['secure_url'])
+            # Upload all media to Cloudinary (reusable via mixin)
+            for media_file in media_files:
+                url = self.upload_media(media_file)
+                uploaded_urls.append(url)
         except Exception as e:
             return Response(
                 {'error': 'Upload failed', 'detail': str(e)},
@@ -50,24 +68,24 @@ class GalleryListCreateView(APIView):
         gallery = Gallery.objects.create(
             title=title,
             created_by=request.user,
-            image_urls=uploaded_urls,
-            image_count=len(uploaded_urls)
+            media_urls=uploaded_urls,
+            media_count=len(uploaded_urls)
         )
 
         output_serializer = GallerySerializer(gallery)
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
 
-class GalleryDetailView(APIView):
-    permission_classes = [IsAdminOrSuperAdmin]  # Default for non-GET methods
+class GalleryDetailView(APIView, MediaUploadMixin):
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def get_permissions(self):
         if self.request.method == 'GET':
-            return [permissions.AllowAny()]  # Public access for retrieving a gallery
-        return super().get_permissions()  # Use custom permission for DELETE
+            return [permissions.AllowAny()]
+        return super().get_permissions()
 
     def get(self, request, pk):
-        """Get a single gallery with all image URLs - Public"""
+        """Get a single gallery with all media URLs - Public"""
         try:
             gallery = Gallery.objects.get(pk=pk)
         except Gallery.DoesNotExist:
@@ -77,7 +95,7 @@ class GalleryDetailView(APIView):
         return Response(serializer.data)
 
     def delete(self, request, pk):
-        """Delete gallery (images remain in Cloudinary — optional cleanup) - Authenticated teachers/admins/superadmins"""
+        """Delete gallery (media remains in Cloudinary — optional cleanup) - Authenticated admins"""
         try:
             gallery = Gallery.objects.get(pk=pk)
             gallery.delete()

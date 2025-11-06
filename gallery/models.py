@@ -5,8 +5,8 @@ class Gallery(models.Model):
     title = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    image_urls = models.JSONField(default=list)
-    image_count = models.PositiveSmallIntegerField(default=0)
+    media_urls = models.JSONField(default=list)
+    media_count = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ['-created_at']
