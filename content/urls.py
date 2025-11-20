@@ -1,8 +1,10 @@
-from django.urls import path
-from .views import ContentItemListCreateView, ContentItemDetailView, ContentListAPIView
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import ContentItemViewSet
+
+router = DefaultRouter()
+router.register(r'content', ContentItemViewSet, basename='content')
 
 urlpatterns = [
-    path('content/', ContentItemListCreateView.as_view(), name='content-list-create'),
-    path('content/<int:pk>/', ContentItemDetailView.as_view(), name='content-detail'),
-    path('content/public/', ContentListAPIView.as_view(), name='content-public'),
+    path('', include(router.urls)),
 ]

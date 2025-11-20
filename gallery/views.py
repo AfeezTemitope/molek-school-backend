@@ -1,102 +1,126 @@
-import cloudinary.uploader
-from rest_framework import status, permissions
+from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.views import APIView
-from .models import Gallery
-from .serializers import GallerySerializer, GalleryCreateSerializer
-from .permissions import IsAdminOrSuperAdmin
-import mimetypes
+from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.renderers import JSONRenderer
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from rest_framework import filters
+from django_filters.rest_framework import DjangoFilterBackend
+import logging
 
-class MediaCarouselMixin:
-    @staticmethod
-    def infer_media_type(url):
-        """Infer type from URL (no DB hit; reusable)."""
-        if url.endswith(('.mp4', '.mov', '.avi')):
-            return 'video'
-        return 'image'
+from .models import Gallery, GalleryImage
+from .serializers import GallerySerializer
+from users.permissions import IsAdminOrSuperAdmin
 
-class MediaUploadMixin:
-    """Reusable mixin for Cloudinary uploads (images/videos)."""
-    @staticmethod
-    def upload_media(file_obj, folder="galleries"):
-        mime_type, _ = mimetypes.guess_type(file_obj.name)
-        resource_type = "auto"
-        if mime_type and "video/" in mime_type:
-            resource_type = "video"
-        elif mime_type and "image/" in mime_type:
-            resource_type = "image"
-        upload_result = cloudinary.uploader.upload(
-            file_obj, folder=folder, resource_type=resource_type
-        )
-        return upload_result['secure_url']
+logger = logging.getLogger(__name__)
 
-class GalleryListCreateView(APIView, MediaUploadMixin, MediaCarouselMixin):
-    permission_classes = [IsAdminOrSuperAdmin]
+
+class GalleryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing galleries.
+
+    Permissions:
+    - Admin/SuperAdmin: Full CRUD access
+    - Public (GET only): List galleries without authentication
+    """
+    serializer_class = GallerySerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    renderer_classes = [JSONRenderer]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['title', 'description']
+    ordering_fields = ['created_at', 'title']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        """Return all active galleries with images"""
+        queryset = Gallery.objects.filter(
+            is_active=True
+        ).select_related('created_by').prefetch_related('images')
+
+        logger.info(f"Gallery queryset count: {queryset.count()}")
+        return queryset
 
     def get_permissions(self):
-        if self.request.method == 'GET':
-            return [permissions.AllowAny()]
-        return super().get_permissions()
+        """
+        Allow public read access to list and retrieve.
+        Require admin for create, update, delete.
+        """
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        else:
+            return [IsAuthenticated(), IsAdminOrSuperAdmin()]
 
-    def get(self, request):
-        """List all galleries - Public, optimized query (leverages ActiveManager)."""
-        # Gallery.objects.all() = active only via manager; no explicit filter
-        galleries = Gallery.objects.select_related('created_by').only(
-            'id', 'title', 'created_at', 'media_urls', 'media_count', 'created_by__username', 'is_active'
-        )  # ONE query: Joins + limits (defers extras like created_by__email)
-        serializer = GallerySerializer(galleries, many=True)
+    # ✅ REMOVED CACHE - Was causing stale data
+    def list(self, request, *args, **kwargs):
+        """Public endpoint for listing galleries (NO CACHE)"""
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            logger.info(f"Returning {len(serializer.data)} galleries (paginated)")
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        logger.info(f"Returning {len(serializer.data)} galleries (non-paginated)")
         return Response(serializer.data)
 
-    def post(self, request):
-        """Upload 1–20 media files and create a gallery - Authenticated admins."""
-        serializer = GalleryCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def create(self, request, *args, **kwargs):
+        """
+        Create gallery with multiple media files
 
-        media_files = serializer.validated_data['media']
-        title = serializer.validated_data.get('title', '')
-
-        uploaded_urls = []
+        Expected data:
+        - title (optional): Gallery title
+        - media: Multiple files
+        """
         try:
-            for media_file in media_files:
-                url = self.upload_media(media_file)
-                uploaded_urls.append(url)
+            # Get title (optional)
+            title = request.data.get('title', f'Gallery {Gallery.objects.count() + 1}')
+
+            # Get uploaded media files
+            media_files = request.FILES.getlist('media')
+
+            if not media_files:
+                return Response(
+                    {'error': 'No media files provided. Please upload at least one image or video.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Create gallery
+            gallery = Gallery.objects.create(
+                title=title,
+                created_by=request.user,
+                is_active=True  # ✅ Explicitly set to True
+            )
+
+            # Create GalleryImage entries for each file
+            for index, media_file in enumerate(media_files):
+                GalleryImage.objects.create(
+                    gallery=gallery,
+                    media=media_file,
+                    order=index,
+                    is_active=True  # ✅ Explicitly set to True
+                )
+
+            # Serialize and return
+            serializer = self.get_serializer(gallery)
+            logger.info(
+                f"Gallery created: ID={gallery.id}, Title={gallery.title}, Media={len(media_files)}, User={request.user.username}")
+
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
         except Exception as e:
-            return Response({'error': 'Upload failed', 'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error creating gallery: {str(e)}")
+            return Response(
+                {'error': f'Failed to create gallery: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # ONE DB write: Atomic create
-        gallery = Gallery.objects.create(
-            title=title,
-            created_by=request.user,
-            media_urls=uploaded_urls,
-            media_count=len(uploaded_urls)
-        )
-
-        output_serializer = GallerySerializer(gallery)
-        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
-
-class GalleryDetailView(APIView, MediaUploadMixin):
-    permission_classes = [IsAdminOrSuperAdmin]
-
-    def get_permissions(self):
-        if self.request.method == 'GET':
-            return [permissions.AllowAny()]
-        return super().get_permissions()
-
-    def get(self, request, pk):
-        """Get a single gallery - Public (active only via manager)."""
-        try:
-            gallery = Gallery.objects.get(pk=pk)  # Manager auto-filters active
-        except Gallery.DoesNotExist:
-            return Response({'error': 'Gallery not found'}, status=status.HTTP_404_NOT_FOUND)
-        serializer = GallerySerializer(gallery)
-        return Response(serializer.data)
-
-    def delete(self, request, pk):
-        """Soft delete gallery - Authenticated admins (reusable via model method)."""
-        try:
-            gallery = Gallery.objects.get(pk=pk)
-            gallery.soft_delete()  # 👈 Calls model method: Set inactive (no media purge)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Gallery.DoesNotExist:
-            return Response({'error': 'Gallery not found'}, status=status.HTTP_404_NOT_FOUND)
+    def perform_destroy(self, instance):
+        """Soft delete gallery"""
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
+        logger.info(
+            f"Gallery soft-deleted: ID={instance.id}, Title={instance.title}, User={self.request.user.username}")

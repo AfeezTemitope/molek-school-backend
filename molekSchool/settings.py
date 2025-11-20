@@ -2,7 +2,6 @@ from pathlib import Path
 from decouple import config
 from datetime import timedelta
 from corsheaders.defaults import default_headers
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- SECURITY ---
@@ -33,6 +32,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://molek.netlify.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
 ]
 
 CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
@@ -141,17 +142,20 @@ AUTH_USER_MODEL = "users.UserProfile"
 
 # --- REST FRAMEWORK ---
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
-    ),
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
-    ),
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 10,
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',  # ✅ ONLY JSON
+    ],
 }
-
 # --- JWT SETTINGS ---
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),

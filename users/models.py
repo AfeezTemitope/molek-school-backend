@@ -1,5 +1,4 @@
 from datetime import datetime
-
 from django.contrib.auth.hashers import make_password
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
@@ -7,9 +6,12 @@ from cloudinary.models import CloudinaryField
 
 
 class UserProfileManager(BaseUserManager):
-    def create_user(self, username, email, first_name, last_name, role='teacher', phone_number=None, password=None):
+    def create_user(self, username, email, first_name, last_name, role='admin', phone_number=None, password=None):
         if not username:
             raise ValueError('Username is required')
+        if role not in ['admin', 'superadmin']:
+            raise ValueError('Role must be admin or superadmin')
+
         email = self.normalize_email(email)
         user = self.model(
             username=username,
@@ -40,8 +42,11 @@ class UserProfileManager(BaseUserManager):
 
 
 class UserProfile(AbstractBaseUser, PermissionsMixin):
+    """
+    Admin/SuperAdmin user model.
+    Students and teachers are managed separately via the public portal.
+    """
     ROLE_CHOICES = (
-        ('teacher', 'Teacher'),
         ('admin', 'Admin'),
         ('superadmin', 'Superadmin'),
     )
@@ -60,11 +65,10 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     address = models.TextField(blank=True, null=True)
     state_of_origin = models.CharField(max_length=100, blank=True, null=True)
     local_govt_area = models.CharField(max_length=100, blank=True, null=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='teacher')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='admin')
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='users_created')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -80,16 +84,28 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
             models.Index(fields=['role']),
             models.Index(fields=['is_active']),
         ]
+        verbose_name = "Admin User"
+        verbose_name_plural = "Admin Users"
 
     def __str__(self):
-        return self.username
+        return f"{self.full_name} ({self.role})"
 
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
 
 
+# ============================================================
+# LEGACY MODEL - DO NOT USE IN NEW CODE
+# ============================================================
 class Student(models.Model):
+    """
+    DEPRECATED: This model is preserved for database compatibility only.
+    Student management has been moved to the public-facing portal.
+
+    This table will NOT be modified by Django migrations (managed=False).
+    DO NOT create new students through this model.
+    """
     CLASS_LEVEL_CHOICES = (
         ('JSS1', 'Junior Secondary 1'),
         ('JSS2', 'Junior Secondary 2'),
@@ -109,7 +125,6 @@ class Student(models.Model):
         ('B', 'B'),
         ('C', 'C'),
     )
-
     SEX_CHOICES = (
         ('male', 'Male'),
         ('female', 'Female'),
@@ -137,7 +152,6 @@ class Student(models.Model):
         blank=True,
         related_name='student_profile'
     )
-
     created_by = models.ForeignKey(
         UserProfile,
         on_delete=models.SET_NULL,
@@ -145,57 +159,16 @@ class Student(models.Model):
         blank=True,
         related_name='students_created'
     )
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        managed = False  # 🔑 CRITICAL: Django won't create/modify this table
+        db_table = 'users_student'  # Explicitly preserve existing table name
         indexes = [
             models.Index(fields=['admission_number']),
             models.Index(fields=['class_level']),
-            models.Index(fields=['stream']),
-            models.Index(fields=['section']),
-            models.Index(fields=['is_active']),
         ]
-
-    def save(self, *args, **kwargs):
-        is_new = self.pk is None
-
-        if not self.admission_number:
-            year = str(datetime.now().year)
-            class_level = self.class_level
-            stream = self.stream or 'GENERAL'
-            section = self.section or 'A'
-            count = Student.objects.filter(class_level=class_level, stream=stream, section=section).count() + 1
-            self.admission_number = f'{year}/{class_level}/{stream.upper()}/{section}/{count:03d}'
-
-        super().save(*args, **kwargs)
-
-        # After saving, create a student user if missing
-        if is_new and not self.user:
-            username = self.admission_number.lower().replace("/", "_")
-            # Ensure username is unique
-            base_username = username
-            counter = 1
-            while UserProfile.objects.filter(username=username).exists():
-                username = f"{base_username}_{counter}"
-                counter += 1
-
-            student_user = UserProfile.objects.create(
-                username=username,
-                email=self.parent_email or f"{username}@molekschools.com",
-                first_name=self.first_name or "",
-                last_name=self.last_name or "",
-                role='student',
-                is_active=True,
-                created_by=self.created_by,
-            )
-            # Set password to last_name (or send reset link later)
-            student_user.set_password(make_password(self.last_name or "password"))
-            student_user.save()
-
-            self.user = student_user
-            self.save(update_fields=['user'])
 
     def __str__(self):
         return f"{self.full_name} ({self.admission_number})"

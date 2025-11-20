@@ -1,144 +1,159 @@
-from django.views.decorators.http import require_GET
 from rest_framework import status, viewsets
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
-from django.views.decorators.cache import cache_page
-from django.utils.decorators import method_decorator
-from django.core.cache import cache
+from rest_framework.decorators import action
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import UserProfile, Student
-from .serializers import (
-    CustomTokenObtainPairSerializer,
-    UserProfileSerializer,
-    StudentSerializer,
-    UserLoginSerializer,
-    ChangePasswordSerializer
-)
-import logging
+from django.core.cache import cache
 from rest_framework import filters
 from django_filters.rest_framework import DjangoFilterBackend
+import logging
 
-logger = logging.getLogger(__name__)
+from .models import UserProfile
+from .serializers import (
+    CustomTokenObtainPairSerializer,
+    AdminProfileSerializer,
+    ChangePasswordSerializer,
+    ProfileUpdateSerializer
+)
 from .permissions import IsAdminOrSuperAdmin
 
+logger = logging.getLogger(__name__)
 
 
-class UserProfileViewSet(viewsets.ModelViewSet):
-    queryset = UserProfile.objects.all()
-    serializer_class = UserProfileSerializer
-    permission_classes = [IsAdminOrSuperAdmin]
+# ==============================
+# AUTHENTICATION VIEWS
+# ==============================
 class CustomTokenObtainPairView(TokenObtainPairView):
+    """Custom JWT authentication for admin users"""
     serializer_class = CustomTokenObtainPairSerializer
-class UserViewSet(ModelViewSet):
-    queryset = UserProfile.objects.filter(is_active=True) \
-        .select_related('created_by', 'student_profile') \
-        .prefetch_related('groups', 'user_permissions')
-    serializer_class = UserProfileSerializer
+
+
+# ==============================
+# ADMIN MANAGEMENT VIEWSET
+# ==============================
+class AdminViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing admin users.
+    - Admins can create other admins
+    - Superadmins can create admins and superadmins
+    - All admins can view the list
+    """
+    serializer_class = AdminProfileSerializer
     permission_classes = [IsAuthenticated, IsAdminOrSuperAdmin]
-    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['username', 'email', 'first_name', 'last_name', 'state_of_origin']
-    filterset_fields = ['role', 'is_active', 'sex', 'state_of_origin']
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
+    search_fields = ['username', 'email', 'first_name', 'last_name']
+    filterset_fields = ['role', 'is_active']
+    ordering_fields = ['created_at', 'username', 'email']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        """
+        Optimized queryset with minimal fields.
+        Only active admin/superadmin users.
+        """
+        return UserProfile.objects.filter(
+            is_active=True,
+            role__in=['admin', 'superadmin']
+        ).only(
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'role', 'phone_number', 'is_active', 'created_at'
+        )
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        """Create new admin user"""
+        serializer.save()
+        logger.info(f"Admin user created: {serializer.instance.username} by {self.request.user.username}")
 
     def perform_update(self, serializer):
-        serializer.save(updated_by=self.request.user)  # Optional: track updates
-class StudentViewSet(ModelViewSet):
-    queryset = Student.objects.filter(is_active=True).select_related('user')
-    serializer_class = StudentSerializer
-    permission_classes = [IsAdminOrSuperAdmin]
-    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['admission_number', 'first_name', 'last_name', 'state_of_origin']
-    filterset_fields = ['class_level', 'stream', 'section', 'is_active', 'sex', 'state_of_origin']
+        """Update admin user"""
+        serializer.save()
+        # Clear cache for this user
+        cache_key = f'admin_{serializer.instance.id}'
+        cache.delete(cache_key)
+        logger.info(f"Admin user updated: {serializer.instance.username} by {self.request.user.username}")
 
-    # def perform_create(self, serializer):
-    #     serializer.save(created_by=self.request.user)
+    def perform_destroy(self, instance):
+        """Soft delete admin user"""
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
+        logger.info(f"Admin user deactivated: {instance.username} by {self.request.user.username}")
 
-    def create(self, request, *args, **kwargs):
-        try:
-            logger.info(f"POST /api/students/ started: {request.data}")
-            return super().create(request, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Crash in StudentViewSet.create: {str(e)} | Data: {request.data}", exc_info=True)
-            return Response({"detail": "Internal server error—check logs"},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def perform_update(self, serializer):
-        serializer.save(updated_by=self.request.user)  # Optional
-class LoginStudentView(APIView):
-    permission_classes = [AllowAny]
-    def post(self, request, *args, **kwargs):
-        serializer = UserLoginSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            return Response(serializer.validated_data, status=status.HTTP_200_OK)
-        return Response({"detail": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get admin statistics"""
+        queryset = self.get_queryset()
+        return Response({
+            'total_admins': queryset.filter(role='admin').count(),
+            'total_superadmins': queryset.filter(role='superadmin').count(),
+            'total': queryset.count()
+        })
 
 
-@api_view(['GET'])
-@permission_classes([IsAdminOrSuperAdmin])
-@cache_page(60 * 5)
-def get_students_by_class(request):
-    class_level = request.query_params.get('class_level')
-    stream = request.query_params.get('stream')
-    section = request.query_params.get('section')
-    cache_key = f'students_{class_level}_{stream}_{section}'
-    cached_data = cache.get(cache_key)
-    if cached_data:
-        return Response(cached_data, status=status.HTTP_200_OK)
-
-    queryset = Student.objects.filter(is_active=True).select_related('user')
-    if class_level:
-        queryset = queryset.filter(class_level=class_level)
-    if stream:
-        queryset = queryset.filter(stream=stream)
-    if section:
-        queryset = queryset.filter(section=section)
-
-    serializer = StudentSerializer(queryset, many=True, context={'request': request})
-    cache.set(cache_key, serializer.data, timeout=60 * 5)
-    return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-class UpdateProfileView(APIView):
+# ==============================
+# PROFILE MANAGEMENT VIEWS
+# ==============================
+class ProfileView(APIView):
+    """
+    Get and update current user's profile.
+    GET: Retrieve current user's profile
+    PUT/PATCH: Update current user's profile (no role change)
+    """
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, *args, **kwargs):
-        user = request.user
-        serializer = UserProfileSerializer(user, data=request.data, partial=True, context={'request': request})
+    def get(self, request):
+        """Get current user profile"""
+        serializer = AdminProfileSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def put(self, request):
+        """Update current user profile (full update)"""
+        serializer = ProfileUpdateSerializer(
+            request.user,
+            data=request.data,
+            partial=False,
+            context={'request': request}
+        )
         if serializer.is_valid():
             serializer.save()
-            cache_key = f'user_{user.id}'
+            # Clear cache
+            cache_key = f'profile_{request.user.id}'
+            cache.delete(cache_key)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request):
+        """Update current user profile (partial update)"""
+        serializer = ProfileUpdateSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            cache_key = f'profile_{request.user.id}'
             cache.delete(cache_key)
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-@method_decorator(cache_page(60 * 15), name='get')
-class ExportStudentDataView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        user = request.user
-        try:
-            student = Student.objects.get(user=user, is_active=True)
-            serializer = StudentSerializer(student, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Student.DoesNotExist:
-            return Response({"detail": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND)
-
-
 class ChangePasswordView(APIView):
+    """Change current user's password"""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, *args, **kwargs):
-        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+    def post(self, request):
+        """Change password for authenticated user"""
+        serializer = ChangePasswordSerializer(
+            data=request.data,
+            context={'request': request}
+        )
         if serializer.is_valid():
             user = request.user
             user.set_password(serializer.validated_data['new_password'])
             user.save()
-            return Response({"detail": "Password changed successfully"}, status=status.HTTP_200_OK)
+            logger.info(f"Password changed for user: {user.username}")
+            return Response({
+                'detail': 'Password changed successfully'
+            }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

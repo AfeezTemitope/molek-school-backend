@@ -1,9 +1,13 @@
 from rest_framework import permissions
 
-class IsAdminOrSuperAdmin(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in ['admin', 'superadmin']
 
-class IsTeacherAdminOrSuperAdmin(permissions.BasePermission):
+class IsAdminOrSuperAdmin(permissions.BasePermission):
+    """
+    Permission class that only allows admin and superadmin users.
+    """
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in ['teacher', 'admin', 'superadmin']
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role in ['admin', 'superadmin']
+        )
