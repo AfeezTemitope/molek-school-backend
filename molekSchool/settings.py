@@ -19,6 +19,7 @@ ALLOWED_HOSTS = [
     "admin.molekschool.com",
     "molekschool.com",
     "www.molekschool.com",
+    "molek-school-backend.onrender.com",
 ]
 
 # ✅ CORS + CSRF
