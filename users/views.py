@@ -33,12 +33,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 # ADMIN MANAGEMENT VIEWSET
 # ==============================
 class AdminViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing admin users.
-    - Admins can create other admins
-    - Superadmins can create admins and superadmins
-    - All admins can view the list
-    """
+    """ViewSet for managing admin users"""
     serializer_class = AdminProfileSerializer
     permission_classes = [IsAuthenticated, IsAdminOrSuperAdmin]
     filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
@@ -48,10 +43,6 @@ class AdminViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        """
-        Optimized queryset with minimal fields.
-        Only active admin/superadmin users.
-        """
         return UserProfile.objects.filter(
             is_active=True,
             role__in=['admin', 'superadmin']
@@ -61,20 +52,16 @@ class AdminViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        """Create new admin user"""
         serializer.save()
         logger.info(f"Admin user created: {serializer.instance.username} by {self.request.user.username}")
 
     def perform_update(self, serializer):
-        """Update admin user"""
         serializer.save()
-        # Clear cache for this user
         cache_key = f'admin_{serializer.instance.id}'
         cache.delete(cache_key)
         logger.info(f"Admin user updated: {serializer.instance.username} by {self.request.user.username}")
 
     def perform_destroy(self, instance):
-        """Soft delete admin user"""
         instance.is_active = False
         instance.save(update_fields=['is_active'])
         logger.info(f"Admin user deactivated: {instance.username} by {self.request.user.username}")
@@ -94,20 +81,14 @@ class AdminViewSet(viewsets.ModelViewSet):
 # PROFILE MANAGEMENT VIEWS
 # ==============================
 class ProfileView(APIView):
-    """
-    Get and update current user's profile.
-    GET: Retrieve current user's profile
-    PUT/PATCH: Update current user's profile (no role change)
-    """
+    """Get and update current user's profile"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Get current user profile"""
         serializer = AdminProfileSerializer(request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request):
-        """Update current user profile (full update)"""
         serializer = ProfileUpdateSerializer(
             request.user,
             data=request.data,
@@ -116,14 +97,12 @@ class ProfileView(APIView):
         )
         if serializer.is_valid():
             serializer.save()
-            # Clear cache
             cache_key = f'profile_{request.user.id}'
             cache.delete(cache_key)
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def patch(self, request):
-        """Update current user profile (partial update)"""
         serializer = ProfileUpdateSerializer(
             request.user,
             data=request.data,
@@ -143,7 +122,6 @@ class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        """Change password for authenticated user"""
         serializer = ChangePasswordSerializer(
             data=request.data,
             context={'request': request}

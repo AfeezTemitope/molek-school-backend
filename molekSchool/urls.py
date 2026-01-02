@@ -24,10 +24,31 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from users.views import AdminViewSet, CustomTokenObtainPairView
+from users.student_views import (
+    AcademicSessionViewSet,
+    TermViewSet,
+    ClassLevelViewSet,
+    SubjectViewSet,
+    ActiveStudentViewSet,
+    CAScoreViewSet,
+    ExamResultViewSet,
+)
 
-# Setup router for ViewSets
+# Setup main router for ALL ViewSets
 router = DefaultRouter()
+
+# Admin Management
 router.register(r'admins', AdminViewSet, basename='admin')
+
+# Student Management System (for Admin Portal)
+router.register(r'academic-sessions', AcademicSessionViewSet, basename='session')
+router.register(r'terms', TermViewSet, basename='term')
+router.register(r'class-levels', ClassLevelViewSet, basename='class-level')
+router.register(r'subjects', SubjectViewSet, basename='subject')
+router.register(r'students', ActiveStudentViewSet, basename='student')
+router.register(r'ca-scores', CAScoreViewSet, basename='ca-score')
+router.register(r'exam-results', ExamResultViewSet, basename='exam-result')
+
 
 urlpatterns = [
     # Django Admin (Superadmin only)
@@ -37,10 +58,10 @@ urlpatterns = [
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-    # API Router (Admin Management)
+    # API Router (ALL ViewSets - Admin Management + Student Management)
     path('api/', include(router.urls)),
 
-    # User/Profile Management
+    # User/Profile Management (profile, change-password, student login)
     path('api/users/', include('users.urls')),
 
     # Content Management (images, videos, news)

@@ -1,38 +1,77 @@
-# users/utils.py
+import random
+import string
+from datetime import datetime
 
-from decouple import config
-from twilio.rest import Client
-from django.core.mail import send_mail
-from django.conf import settings
-import logging
 
-logger = logging.getLogger(__name__)
+def generate_admission_number():
+    """Generate unique admission number: MOL/YYYY/XXX"""
+    from .models import ActiveStudent
 
-def send_credentials(user, password):
-    message = f"Your School Portal Login:\nEmail: {user.email}\nPassword: {password}\nLogin at: https://yoursite.com/login"
+    year = datetime.now().year
 
-    # Send SMS if phone exists
-    if user.phone:
-        try:
-            client = Client(config('TWILIO_ACCOUNT_SID'), config('TWILIO_AUTH_TOKEN'))
-            client.messages.create(
-                body=message,
-                from_=config('TWILIO_PHONE_NUMBER'),
-                to=user.phone
-            )
-            logger.info(f"SMS sent to {user.phone}")
-        except Exception as e:
-            logger.error(f"Failed to send SMS to {user.phone}: {e}")
+    last_student = ActiveStudent.objects.filter(
+        admission_number__startswith=f'MOL/{year}/'
+    ).order_by('-admission_number').first()
 
-    # Send Email
-    try:
-        send_mail(
-            subject="Your School Portal Credentials",
-            message=message,
-            from_email=settings.EMAIL_HOST_USER,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
-        logger.info(f"Email sent to {user.email}")
-    except Exception as e:
-        logger.error(f"Failed to send email to {user.email}: {e}")
+    if last_student:
+        last_num = int(last_student.admission_number.split('/')[-1])
+        new_num = last_num + 1
+    else:
+        new_num = 1
+
+    return f'MOL/{year}/{new_num:03d}'
+
+
+def generate_password(length=8):
+    """Generate secure random password"""
+    chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghjkmnpqrstuvwxyz'
+    password = ''.join(random.choice(chars) for _ in range(length))
+    return password
+
+
+def calculate_grade(percentage):
+    """Calculate grade from percentage"""
+    if percentage >= 70:
+        return 'A', 'A - Excellent'
+    elif percentage >= 60:
+        return 'B', 'B - Very Good'
+    elif percentage >= 50:
+        return 'C', 'C - Good'
+    elif percentage >= 40:
+        return 'D', 'D - Fair'
+    else:
+        return 'F', 'F - Fail'
+
+
+def calculate_position_and_stats(student, subject, session, term):
+    """Calculate student's position in class for a subject"""
+    from .models import ExamResult
+
+    results = ExamResult.objects.filter(
+        subject=subject,
+        session=session,
+        term=term,
+        student__class_level=student.class_level,
+        student__is_active=True
+    ).order_by('-total_score', 'student__admission_number')
+
+    position = 1
+    total_students = results.count()
+    highest_score = results.first().total_score if results.exists() else 0
+    lowest_score = results.last().total_score if results.exists() else 0
+
+    total_sum = sum(r.total_score for r in results)
+    class_average = round(total_sum / total_students, 2) if total_students > 0 else 0
+
+    for idx, result in enumerate(results, 1):
+        if result.student == student:
+            position = idx
+            break
+
+    return {
+        'position': position,
+        'total_students': total_students,
+        'class_average': class_average,
+        'highest_score': highest_score,
+        'lowest_score': lowest_score
+    }
