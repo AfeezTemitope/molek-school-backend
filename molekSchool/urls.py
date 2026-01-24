@@ -15,16 +15,19 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 """
-URL configuration for molekSchool project.
-Cleaned and optimized for admin-only backend.
+MOLEK School - Main URL Configuration
 """
+
+
+
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from users.views import AdminViewSet, CustomTokenObtainPairView
-from users.student_views import (
+from users.views import (
+    CustomTokenObtainPairView,
+    AdminViewSet,
     AcademicSessionViewSet,
     TermViewSet,
     ClassLevelViewSet,
@@ -34,39 +37,49 @@ from users.student_views import (
     ExamResultViewSet,
 )
 
-# Setup main router for ALL ViewSets
+# ==============================================================================
+# API Router Configuration
+# ==============================================================================
+
 router = DefaultRouter()
 
 # Admin Management
 router.register(r'admins', AdminViewSet, basename='admin')
 
-# Student Management System (for Admin Portal)
+# Academic Management
 router.register(r'academic-sessions', AcademicSessionViewSet, basename='session')
 router.register(r'terms', TermViewSet, basename='term')
 router.register(r'class-levels', ClassLevelViewSet, basename='class-level')
 router.register(r'subjects', SubjectViewSet, basename='subject')
+
+# Student Management
 router.register(r'students', ActiveStudentViewSet, basename='student')
+
+# Score Management
 router.register(r'ca-scores', CAScoreViewSet, basename='ca-score')
 router.register(r'exam-results', ExamResultViewSet, basename='exam-result')
 
+# ==============================================================================
+# URL Patterns
+# ==============================================================================
 
 urlpatterns = [
-    # Django Admin (Superadmin only)
+    # Django Admin
     path('admin/', admin.site.urls),
-
+    
     # JWT Authentication
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-
-    # API Router (ALL ViewSets - Admin Management + Student Management)
+    
+    # API Router (All ViewSets)
     path('api/', include(router.urls)),
-
-    # User/Profile Management (profile, change-password, student login)
+    
+    # User Management (profile, student portal, etc.)
     path('api/users/', include('users.urls')),
-
-    # Content Management (images, videos, news)
+    
+    # Content Management
     path('api/', include('content.urls')),
-
+    
     # Gallery Management
     path('api/galleries/', include('gallery.urls')),
 ]

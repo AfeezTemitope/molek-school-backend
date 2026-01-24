@@ -8,6 +8,8 @@ class ContentItem(models.Model):
     """
     Unified content model for images, videos, and news articles.
     Used for managing all public-facing content.
+    
+    Optimized with composite indexes for common query patterns.
     """
     CONTENT_TYPE_CHOICES = [
         ('image', 'Image'),
@@ -27,7 +29,7 @@ class ContentItem(models.Model):
         transformation=[{'fetch_format': 'auto'}],
     )
     slug = models.SlugField(max_length=200, unique=True, blank=True)
-    published = models.BooleanField(default=True)
+    published = models.BooleanField(default=True, db_index=True)
     publish_date = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         UserProfile,
@@ -36,17 +38,23 @@ class ContentItem(models.Model):
         related_name='created_content'
     )
     updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         ordering = ['-publish_date']
         verbose_name = "Content Item"
         verbose_name_plural = "Content Items"
         indexes = [
+            # Single field indexes
             models.Index(fields=['slug']),
-            models.Index(fields=['published', 'is_active']),
-            models.Index(fields=['content_type']),
             models.Index(fields=['-publish_date']),
+            
+            # Composite indexes for common query patterns
+            models.Index(fields=['is_active', 'published'], name='content_active_published_idx'),
+            models.Index(fields=['is_active', 'content_type'], name='content_active_type_idx'),
+            models.Index(fields=['is_active', 'published', '-publish_date'], name='content_public_list_idx'),
+            models.Index(fields=['content_type', 'is_active', '-publish_date'], name='content_type_list_idx'),
+            models.Index(fields=['created_by', 'is_active'], name='content_creator_idx'),
         ]
 
     def save(self, *args, **kwargs):
