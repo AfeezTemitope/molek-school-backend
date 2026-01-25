@@ -257,6 +257,16 @@ class GalleryViewSet(viewsets.ModelViewSet):
         # Return updated gallery
         serializer = self.get_serializer(gallery)
         return Response(serializer.data)
+        
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get gallery statistics"""
+        from .models import Gallery
+        return Response({
+            'total': Gallery.objects.count(),
+            'total_galleries': Gallery.objects.count()
+        })
 
     @action(detail=True, methods=['delete'], permission_classes=[IsAuthenticated, IsAdminOrSuperAdmin])
     def remove_image(self, request, pk=None):
