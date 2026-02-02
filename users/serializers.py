@@ -930,3 +930,5 @@ class BulkPromotionSerializer(serializers.Serializer):
     from_class = serializers.CharField(max_length=10)
     to_class = serializers.CharField(max_length=10)
     session_id = serializers.IntegerField()
+    
+    
