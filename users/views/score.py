@@ -8,6 +8,7 @@ import logging
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Avg
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -20,22 +21,27 @@ from ..models import (
 from ..serializers import (
     CAScoreSerializer,
     ExamResultSerializer,
-    CAScoreUploadSerializer,
-    ExamResultUploadSerializer,
-    CAScoreBulkUploadSerializer,
-    ExamResultBulkUploadSerializer,
 )
 from ..permissions import IsAdminOrSuperAdmin
 from ..cache_utils import (
-    make_cache_key,
-    get_or_set_cache,
-    invalidate_cache,
     invalidate_score_cache,
-    CACHE_TIMEOUT_SCORE,
 )
-from ..utils import calculate_grade
 
 logger = logging.getLogger(__name__)
+
+
+def get_grade(score):
+    """Convert score to letter grade"""
+    score = float(score) if score else 0
+    if score >= 70:
+        return 'A'
+    elif score >= 60:
+        return 'B'
+    elif score >= 50:
+        return 'C'
+    elif score >= 40:
+        return 'D'
+    return 'F'
 
 
 class CAScoreViewSet(viewsets.ModelViewSet):
@@ -54,17 +60,33 @@ class CAScoreViewSet(viewsets.ModelViewSet):
     filterset_fields = ['student', 'subject', 'session', 'term']
     
     def get_queryset(self):
-        """Optimized queryset with select_related"""
-        return CAScore.objects.select_related(
+        """Optimized queryset with select_related and additional filters"""
+        queryset = CAScore.objects.select_related(
             'student', 'subject', 'session', 'term', 'uploaded_by'
         ).all()
+        
+        # Additional filter for class_level
+        class_level = self.request.query_params.get('class_level')
+        if class_level:
+            queryset = queryset.filter(student__class_level_id=class_level)
+        
+        return queryset
     
     @action(detail=False, methods=['post'], url_path='bulk-upload')
     def bulk_upload(self, request):
         """
-        Bulk upload CA scores via CSV.
+        Bulk upload CA + Theory scores via CSV.
         
-        Expected columns: admission_number, subject_code, subject_name, ca_score
+        CSV Format: admission_number, subject, ca_score, theory_score
+        Example:
+            admission_number,subject,ca_score,theory_score
+            MOL/2026/001,Mathematics,25,18
+            MOL/2026/001,English Language,22,15
+            MOL/2026/001,Science,28,20
+        
+        - Subject is auto-created if not exists
+        - ca_score: max 30
+        - theory_score: varies by subject (teacher decides max)
         """
         if 'file' not in request.FILES:
             return Response(
@@ -112,24 +134,34 @@ class CAScoreViewSet(viewsets.ModelViewSet):
         for row in reader:
             row_num += 1
             try:
-                serializer = CAScoreBulkUploadSerializer(data=row)
-                if not serializer.is_valid():
+                admission_number = row.get('admission_number', '').strip().upper()
+                subject_name = row.get('subject', '').strip()
+                ca_score_str = row.get('ca_score', '0').strip()
+                theory_score_str = row.get('theory_score', '0').strip()
+                
+                if not admission_number or not subject_name:
                     errors.append({
                         'row': row_num,
-                        'error': f"Validation failed: {serializer.errors}"
+                        'error': 'admission_number and subject are required'
                     })
                     continue
                 
-                admission_number = serializer.validated_data['admission_number'].upper()
-                subject_code = serializer.validated_data['subject_code'].upper()
-                subject_name = serializer.validated_data.get('subject_name', subject_code)
-                ca_score = serializer.validated_data['ca_score']
+                # Parse scores
+                try:
+                    ca_score = Decimal(ca_score_str) if ca_score_str else Decimal('0')
+                    theory_score = Decimal(theory_score_str) if theory_score_str else Decimal('0')
+                except:
+                    errors.append({
+                        'row': row_num,
+                        'error': 'Invalid score format'
+                    })
+                    continue
                 
-                # Validate CA score
+                # Validate CA score (max 30)
                 if ca_score > 30:
                     errors.append({
                         'row': row_num,
-                        'error': f"CA score {ca_score} exceeds maximum of 30"
+                        'error': f'CA score {ca_score} exceeds maximum of 30'
                     })
                     continue
                 
@@ -141,16 +173,20 @@ class CAScoreViewSet(viewsets.ModelViewSet):
                 except ActiveStudent.DoesNotExist:
                     errors.append({
                         'row': row_num,
-                        'error': f"Student {admission_number} not found"
+                        'error': f'Student {admission_number} not found'
                     })
                     continue
                 
-                # Get or create subject
-                subject, subject_is_new = Subject.objects.get_or_create(
-                    code=subject_code,
-                    defaults={'name': subject_name, 'is_active': True}
+                # Get or CREATE subject by NAME
+                subject, subj_created = Subject.objects.get_or_create(
+                    name__iexact=subject_name,
+                    defaults={
+                        'name': subject_name,
+                        'code': subject_name[:3].upper() + '101',
+                        'is_active': True
+                    }
                 )
-                if subject_is_new:
+                if subj_created:
                     subjects_created += 1
                 
                 # Create or update CA score
@@ -161,7 +197,7 @@ class CAScoreViewSet(viewsets.ModelViewSet):
                     term=term,
                     defaults={
                         'ca_score': ca_score,
-                        'theory_score': 0,
+                        'theory_score': theory_score,
                         'uploaded_by': request.user
                     }
                 )
@@ -174,7 +210,6 @@ class CAScoreViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 errors.append({'row': row_num, 'error': str(e)})
         
-        # Invalidate score cache
         invalidate_score_cache(session_id, term_id)
         
         logger.info(f"CA scores uploaded: {created} created, {updated} updated by {request.user.username}")
@@ -189,16 +224,20 @@ class CAScoreViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='export-template')
     def export_template(self, request):
-        """Export CA scores template CSV"""
+        """Export CA + Theory scores template CSV"""
         from django.http import HttpResponse
         
         response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="ca_scores_template.csv"'
+        response['Content-Disposition'] = 'attachment; filename="ca_theory_scores_template.csv"'
         
         writer = csv.writer(response)
-        writer.writerow(['admission_number', 'subject_code', 'subject_name', 'ca_score'])
-        writer.writerow(['MOL/2026/001', 'GNS101', 'General Studies', '25'])
-        writer.writerow(['MOL/2026/002', 'GNS101', 'General Studies', '28'])
+        writer.writerow(['admission_number', 'subject', 'ca_score', 'theory_score'])
+        writer.writerow(['MOL/2026/001', 'Mathematics', '25', '18'])
+        writer.writerow(['MOL/2026/001', 'English Language', '22', '15'])
+        writer.writerow(['MOL/2026/001', 'Science', '28', '20'])
+        writer.writerow(['MOL/2026/002', 'Mathematics', '20', '14'])
+        writer.writerow(['MOL/2026/002', 'English Language', '24', '16'])
+        writer.writerow(['MOL/2026/002', 'Science', '26', '18'])
         
         return response
 
@@ -208,8 +247,10 @@ class ExamResultViewSet(viewsets.ModelViewSet):
     CRUD for exam results.
     
     Features:
-    - Filter by student, subject, session, term
+    - Filter by student, subject, session, term, class_level
     - Bulk import from CBT CSV
+    - Recalculate positions
+    - Auto-calculate total and grade on create/update
     """
     queryset = ExamResult.objects.all()
     serializer_class = ExamResultSerializer
@@ -218,17 +259,144 @@ class ExamResultViewSet(viewsets.ModelViewSet):
     filterset_fields = ['student', 'subject', 'session', 'term']
     
     def get_queryset(self):
-        """Optimized queryset with select_related"""
-        return ExamResult.objects.select_related(
+        """Optimized queryset with select_related and additional filters"""
+        queryset = ExamResult.objects.select_related(
             'student', 'subject', 'session', 'term', 'uploaded_by'
-        ).all()
+        ).order_by('-uploaded_at')
+        
+        # Additional filter for class_level
+        class_level = self.request.query_params.get('class_level')
+        if class_level:
+            queryset = queryset.filter(student__class_level_id=class_level)
+        
+        return queryset
+    
+    def perform_create(self, serializer):
+        """Auto-calculate total, grade on create"""
+        instance = serializer.save(uploaded_by=self.request.user)
+        self._calculate_result(instance)
+    
+    def perform_update(self, serializer):
+        """Auto-calculate total, grade on update"""
+        instance = serializer.save()
+        self._calculate_result(instance)
+    
+    def _calculate_result(self, instance):
+        """Calculate total score and grade"""
+        ca = float(instance.ca_score or 0)
+        theory = float(instance.theory_score or 0)
+        exam = float(instance.exam_score or 0)
+        
+        total = ca + theory + exam
+        instance.total_score = Decimal(str(total))
+        instance.grade = get_grade(total)
+        instance.save(update_fields=['total_score', 'grade'])
+    
+    @action(detail=False, methods=['post'], url_path='recalculate-positions')
+    def recalculate_positions(self, request):
+        """
+        Recalculate positions for all results in a session/term.
+        
+        Request body:
+        {
+            "session": 1,
+            "term": 1,
+            "class_level": 1  // optional
+        }
+        """
+        session_id = request.data.get('session')
+        term_id = request.data.get('term')
+        class_level_id = request.data.get('class_level')
+        
+        if not session_id or not term_id:
+            return Response(
+                {'error': 'Session and term are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = AcademicSession.objects.get(id=session_id)
+            term = Term.objects.get(id=term_id)
+        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
+            return Response(
+                {'error': 'Invalid session or term'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get all subjects with results
+        results_query = ExamResult.objects.filter(
+            session_id=session_id,
+            term_id=term_id
+        )
+        
+        if class_level_id:
+            results_query = results_query.filter(student__class_level_id=class_level_id)
+        
+        subjects = results_query.values_list('subject_id', flat=True).distinct()
+        
+        subjects_processed = 0
+        for subject_id in subjects:
+            # Get results for this subject, ordered by total score
+            subject_results = list(results_query.filter(
+                subject_id=subject_id
+            ).order_by('-total_score'))
+            
+            if not subject_results:
+                continue
+            
+            total_students = len(subject_results)
+            scores = [float(r.total_score or 0) for r in subject_results]
+            class_avg = sum(scores) / total_students if total_students > 0 else 0
+            highest = max(scores) if scores else 0
+            lowest = min(scores) if scores else 0
+            
+            # Assign positions (handle ties)
+            position = 0
+            prev_score = None
+            
+            for idx, result in enumerate(subject_results):
+                current_score = float(result.total_score or 0)
+                if current_score != prev_score:
+                    position = idx + 1
+                    prev_score = current_score
+                
+                result.position = position
+                result.total_students = total_students
+                result.class_average = Decimal(str(round(class_avg, 2)))
+                result.highest_score = Decimal(str(highest))
+                result.lowest_score = Decimal(str(lowest))
+            
+            # Bulk update
+            ExamResult.objects.bulk_update(
+                subject_results,
+                ['position', 'total_students', 'class_average', 'highest_score', 'lowest_score']
+            )
+            subjects_processed += 1
+        
+        invalidate_score_cache(session_id, term_id)
+        
+        logger.info(f"Positions recalculated: {subjects_processed} subjects by {request.user.username}")
+        
+        return Response({
+            'success': True,
+            'message': 'Positions recalculated successfully',
+            'subjects_processed': subjects_processed
+        })
     
     @action(detail=False, methods=['post'], url_path='bulk-import')
     def bulk_import(self, request):
         """
         Bulk import exam results from CBT CSV.
         
-        Expected columns: admission_number, subject_code, subject_name, exam_score, submitted_at
+        CSV Format: admission_number, subject, exam_score
+        Example:
+            admission_number,subject,exam_score
+            MOL/2026/001,Mathematics,56
+            MOL/2026/001,English Language,49
+        
+        - Subject is auto-created if not exists
+        - CA + Theory scores are pulled from CAScore table
+        - Total = CA + Theory + Exam
         """
         if 'file' not in request.FILES:
             return Response(
@@ -270,31 +438,39 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         created = 0
         updated = 0
         subjects_created = 0
+        missing_ca = []
         errors = []
         row_num = 1
         
         for row in reader:
             row_num += 1
             try:
-                serializer = ExamResultBulkUploadSerializer(data=row)
-                if not serializer.is_valid():
+                admission_number = row.get('admission_number', '').strip().upper()
+                subject_name = row.get('subject', '').strip()
+                exam_score_str = row.get('exam_score', '0').strip()
+                
+                if not admission_number or not subject_name:
                     errors.append({
                         'row': row_num,
-                        'error': f"Validation failed: {serializer.errors}"
+                        'error': 'admission_number and subject are required'
                     })
                     continue
                 
-                admission_number = serializer.validated_data['admission_number'].upper()
-                subject_code = serializer.validated_data['subject_code'].upper()
-                subject_name = serializer.validated_data.get('subject_name', subject_code)
-                exam_score = serializer.validated_data['exam_score']
-                submitted_at = serializer.validated_data.get('submitted_at')
+                # Parse exam score
+                try:
+                    exam_score = Decimal(exam_score_str) if exam_score_str else Decimal('0')
+                except:
+                    errors.append({
+                        'row': row_num,
+                        'error': 'Invalid exam score format'
+                    })
+                    continue
                 
-                # Validate exam score
+                # Validate exam score (max 70 for CBT portion)
                 if exam_score > 70:
                     errors.append({
                         'row': row_num,
-                        'error': f"Exam score {exam_score} exceeds maximum of 70"
+                        'error': f'Exam score {exam_score} exceeds maximum of 70'
                     })
                     continue
                 
@@ -306,19 +482,25 @@ class ExamResultViewSet(viewsets.ModelViewSet):
                 except ActiveStudent.DoesNotExist:
                     errors.append({
                         'row': row_num,
-                        'error': f"Student {admission_number} not found"
+                        'error': f'Student {admission_number} not found'
                     })
                     continue
                 
-                # Get or create subject
-                subject, subject_is_new = Subject.objects.get_or_create(
-                    code=subject_code,
-                    defaults={'name': subject_name, 'is_active': True}
+                # Get or CREATE subject by NAME
+                subject, subj_created = Subject.objects.get_or_create(
+                    name__iexact=subject_name,
+                    defaults={
+                        'name': subject_name,
+                        'code': subject_name[:3].upper() + '101',
+                        'is_active': True
+                    }
                 )
-                if subject_is_new:
+                if subj_created:
                     subjects_created += 1
                 
-                # Get CA score if exists
+                # Get CA + Theory scores if exists
+                ca_score = Decimal('0')
+                theory_score = Decimal('0')
                 try:
                     ca_obj = CAScore.objects.get(
                         student=student, subject=subject, session=session, term=term
@@ -326,8 +508,10 @@ class ExamResultViewSet(viewsets.ModelViewSet):
                     ca_score = ca_obj.ca_score
                     theory_score = ca_obj.theory_score
                 except CAScore.DoesNotExist:
-                    ca_score = Decimal('0')
-                    theory_score = Decimal('0')
+                    missing_ca.append({
+                        'admission_number': admission_number,
+                        'subject': subject_name
+                    })
                 
                 # Create or update exam result
                 result, is_new = ExamResult.objects.update_or_create(
@@ -339,7 +523,6 @@ class ExamResultViewSet(viewsets.ModelViewSet):
                         'ca_score': ca_score,
                         'theory_score': theory_score,
                         'exam_score': exam_score,
-                        'submitted_at': submitted_at,
                         'uploaded_by': request.user
                     }
                 )
@@ -352,10 +535,9 @@ class ExamResultViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 errors.append({'row': row_num, 'error': str(e)})
         
-        # Calculate class positions
+        # Calculate positions after import
         _calculate_class_positions(session, term)
         
-        # Invalidate score cache
         invalidate_score_cache(session_id, term_id)
         
         logger.info(f"Exam results imported: {created} created, {updated} updated by {request.user.username}")
@@ -365,23 +547,39 @@ class ExamResultViewSet(viewsets.ModelViewSet):
             'updated': updated,
             'subjects_created': subjects_created,
             'failed': len(errors),
+            'missing_ca_scores': missing_ca[:10] if missing_ca else None,
             'errors': errors[:10],
         })
+    
+    @action(detail=False, methods=['get'], url_path='export-template')
+    def export_template(self, request):
+        """Export exam results template CSV (CBT format)"""
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="exam_results_template.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow(['admission_number', 'subject', 'exam_score'])
+        writer.writerow(['MOL/2026/001', 'Mathematics', '56'])
+        writer.writerow(['MOL/2026/001', 'English Language', '49'])
+        writer.writerow(['MOL/2026/001', 'Science', '42'])
+        writer.writerow(['MOL/2026/002', 'Mathematics', '63'])
+        
+        return response
 
-
-# ==============================================================================
-# Function-based views for CA + Theory score bulk upload
-# ==============================================================================
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdminOrSuperAdmin])
 def bulk_upload_ca_scores(request):
     """
-    Bulk upload CA + Theory scores from CSV.
+    Upload CA + Theory scores from CSV file.
     
-    CSV Format:
-    admission_number,subject,ca_score,theory_score
-    MOL/2026/001,Mathematics,25,18
+    CSV Format: admission_number, subject, ca_score, theory_score
+    
+    - ca_score: Continuous Assessment (max 30)
+    - theory_score: Theory/Essay score (varies by subject)
+    - Subjects are auto-created if they don't exist
     """
     if 'file' not in request.FILES:
         return Response(
@@ -408,7 +606,6 @@ def bulk_upload_ca_scores(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Parse CSV
     try:
         decoded_file = csv_file.read().decode('utf-8')
         reader = csv.DictReader(io.StringIO(decoded_file))
@@ -425,39 +622,67 @@ def bulk_upload_ca_scores(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Process
     created_count = 0
     updated_count = 0
+    subjects_created = 0
     errors = []
     
     with transaction.atomic():
         for idx, row in enumerate(rows, start=2):
-            serializer = CAScoreUploadSerializer(data=row)
-            
-            if not serializer.is_valid():
-                errors.append({
-                    'row': idx,
-                    'admission_number': row.get('admission_number', 'N/A'),
-                    'errors': serializer.errors
-                })
-                continue
-            
-            data = serializer.validated_data
-            
             try:
-                student = ActiveStudent.objects.get(
-                    admission_number=data['admission_number']
-                )
-                subject = Subject.objects.get(name__iexact=data['subject'])
+                admission_number = row.get('admission_number', '').strip().upper()
+                subject_name = row.get('subject', '').strip()
+                ca_score = Decimal(row.get('ca_score', '0').strip() or '0')
+                theory_score = Decimal(row.get('theory_score', '0').strip() or '0')
                 
-                ca_score, created = CAScore.objects.update_or_create(
+                if not admission_number or not subject_name:
+                    errors.append({
+                        'row': idx,
+                        'error': 'admission_number and subject are required'
+                    })
+                    continue
+                
+                # Validate CA score
+                if ca_score > 30:
+                    errors.append({
+                        'row': idx,
+                        'admission_number': admission_number,
+                        'error': 'CA score exceeds 30'
+                    })
+                    continue
+                
+                # Get student
+                try:
+                    student = ActiveStudent.objects.get(admission_number=admission_number)
+                except ActiveStudent.DoesNotExist:
+                    errors.append({
+                        'row': idx,
+                        'admission_number': admission_number,
+                        'error': 'Student not found'
+                    })
+                    continue
+                
+                # Get or CREATE subject
+                subject, subj_created = Subject.objects.get_or_create(
+                    name__iexact=subject_name,
+                    defaults={
+                        'name': subject_name,
+                        'code': subject_name[:3].upper() + '101',
+                        'is_active': True
+                    }
+                )
+                if subj_created:
+                    subjects_created += 1
+                
+                # Create or update CA score
+                ca_obj, created = CAScore.objects.update_or_create(
                     student=student,
                     subject=subject,
                     session=session,
                     term=term,
                     defaults={
-                        'ca_score': data['ca_score'],
-                        'theory_score': data.get('theory_score', 0),
+                        'ca_score': ca_score,
+                        'theory_score': theory_score,
                         'uploaded_by': request.user
                     }
                 )
@@ -466,35 +691,39 @@ def bulk_upload_ca_scores(request):
                     created_count += 1
                 else:
                     updated_count += 1
-                
+                    
             except Exception as e:
                 errors.append({
                     'row': idx,
                     'admission_number': row.get('admission_number', 'N/A'),
-                    'errors': str(e)
+                    'error': str(e)
                 })
     
-    # Invalidate cache
     invalidate_score_cache(session_id, term_id)
+    
+    logger.info(f"CA scores uploaded: {created_count} created, {updated_count} updated by {request.user.username}")
     
     return Response({
         'success': True,
-        'message': f'Processed {len(rows)} records',
+        'message': f'Processed {len(rows)} CA scores',
         'created': created_count,
         'updated': updated_count,
-        'errors': errors if errors else None,
-        'total_processed': created_count + updated_count
+        'subjects_created': subjects_created,
+        'errors': errors[:10] if errors else None
     })
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdminOrSuperAdmin])
 def bulk_upload_exam_results(request):
     """
-    Bulk upload CBT exam results and combine with CA scores.
+    Upload exam results from CBT CSV file.
     
-    CSV Format from CBT:
-    admission_number,subject,exam_score,total_questions,submitted_at
+    CSV Format: admission_number, subject, exam_score
+    
+    - Pulls CA + Theory from CAScore table
+    - Calculates: Total = CA + Theory + Exam
+    - Subjects are auto-created if they don't exist
     """
     if 'file' not in request.FILES:
         return Response(
@@ -521,7 +750,6 @@ def bulk_upload_exam_results(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Parse CSV
     try:
         decoded_file = csv_file.read().decode('utf-8')
         reader = csv.DictReader(io.StringIO(decoded_file))
@@ -538,33 +766,61 @@ def bulk_upload_exam_results(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Process
     created_count = 0
     updated_count = 0
+    subjects_created = 0
     missing_ca_scores = []
     errors = []
     
     with transaction.atomic():
         for idx, row in enumerate(rows, start=2):
-            serializer = ExamResultUploadSerializer(data=row)
-            
-            if not serializer.is_valid():
-                errors.append({
-                    'row': idx,
-                    'admission_number': row.get('admission_number', 'N/A'),
-                    'errors': serializer.errors
-                })
-                continue
-            
-            data = serializer.validated_data
-            
             try:
-                student = ActiveStudent.objects.get(
-                    admission_number=data['admission_number']
-                )
-                subject = Subject.objects.get(name__iexact=data['subject'])
+                admission_number = row.get('admission_number', '').strip().upper()
+                subject_name = row.get('subject', '').strip()
+                exam_score = Decimal(row.get('exam_score', '0').strip() or '0')
                 
-                # Get CA score
+                if not admission_number or not subject_name:
+                    errors.append({
+                        'row': idx,
+                        'error': 'admission_number and subject are required'
+                    })
+                    continue
+                
+                # Validate exam score
+                if exam_score > 70:
+                    errors.append({
+                        'row': idx,
+                        'admission_number': admission_number,
+                        'error': 'Exam score exceeds 70'
+                    })
+                    continue
+                
+                # Get student
+                try:
+                    student = ActiveStudent.objects.get(admission_number=admission_number)
+                except ActiveStudent.DoesNotExist:
+                    errors.append({
+                        'row': idx,
+                        'admission_number': admission_number,
+                        'error': 'Student not found'
+                    })
+                    continue
+                
+                # Get or CREATE subject
+                subject, subj_created = Subject.objects.get_or_create(
+                    name__iexact=subject_name,
+                    defaults={
+                        'name': subject_name,
+                        'code': subject_name[:3].upper() + '101',
+                        'is_active': True
+                    }
+                )
+                if subj_created:
+                    subjects_created += 1
+                
+                # Get CA + Theory scores
+                ca_score = Decimal('0')
+                theory_score = Decimal('0')
                 try:
                     ca_obj = CAScore.objects.get(
                         student=student, subject=subject, session=session, term=term
@@ -573,11 +829,9 @@ def bulk_upload_exam_results(request):
                     theory_score = ca_obj.theory_score
                 except CAScore.DoesNotExist:
                     missing_ca_scores.append({
-                        'admission_number': data['admission_number'],
-                        'subject': data['subject']
+                        'admission_number': admission_number,
+                        'subject': subject_name
                     })
-                    ca_score = Decimal('0')
-                    theory_score = Decimal('0')
                 
                 # Create or update exam result
                 result, created = ExamResult.objects.update_or_create(
@@ -588,9 +842,7 @@ def bulk_upload_exam_results(request):
                     defaults={
                         'ca_score': ca_score,
                         'theory_score': theory_score,
-                        'exam_score': Decimal(str(data['exam_score'])),
-                        'total_exam_questions': data.get('total_questions', 0),
-                        'submitted_at': data.get('submitted_at'),
+                        'exam_score': exam_score,
                         'uploaded_by': request.user
                     }
                 )
@@ -599,27 +851,29 @@ def bulk_upload_exam_results(request):
                     created_count += 1
                 else:
                     updated_count += 1
-                
+                    
             except Exception as e:
                 errors.append({
                     'row': idx,
                     'admission_number': row.get('admission_number', 'N/A'),
-                    'errors': str(e)
+                    'error': str(e)
                 })
     
     # Calculate positions
     _calculate_class_positions(session, term)
     
-    # Invalidate cache
     invalidate_score_cache(session_id, term_id)
+    
+    logger.info(f"Exam results imported: {created_count} created, {updated_count} updated by {request.user.username}")
     
     return Response({
         'success': True,
         'message': f'Processed {len(rows)} results',
         'created': created_count,
         'updated': updated_count,
-        'missing_ca_scores': missing_ca_scores if missing_ca_scores else None,
-        'errors': errors if errors else None
+        'subjects_created': subjects_created,
+        'missing_ca_scores': missing_ca_scores[:10] if missing_ca_scores else None,
+        'errors': errors[:10] if errors else None
     })
 
 
@@ -689,7 +943,6 @@ def _calculate_class_positions(session, term):
     """Calculate positions within each class/subject"""
     results = ExamResult.objects.filter(session=session, term=term).select_related('student')
     
-    # Group by class and subject
     class_subject_groups = {}
     for result in results:
         key = (result.student.class_level_id, result.subject_id)
@@ -697,25 +950,31 @@ def _calculate_class_positions(session, term):
             class_subject_groups[key] = []
         class_subject_groups[key].append(result)
     
-    # Calculate positions for each group
     for key, group_results in class_subject_groups.items():
-        sorted_results = sorted(group_results, key=lambda x: x.total_score, reverse=True)
+        sorted_results = sorted(group_results, key=lambda x: float(x.total_score or 0), reverse=True)
         
         total_students = len(sorted_results)
-        scores = [r.total_score for r in sorted_results]
+        scores = [float(r.total_score or 0) for r in sorted_results]
         avg_score = sum(scores) / total_students if total_students > 0 else 0
         highest = max(scores) if scores else 0
         lowest = min(scores) if scores else 0
         
-        # Bulk update for efficiency
-        for position, result in enumerate(sorted_results, start=1):
-            result.position = position
-            result.class_average = avg_score
-            result.total_students = total_students
-            result.highest_score = highest
-            result.lowest_score = lowest
+        # Handle ties
+        position = 0
+        prev_score = None
         
-        # Batch update
+        for idx, result in enumerate(sorted_results):
+            current_score = float(result.total_score or 0)
+            if current_score != prev_score:
+                position = idx + 1
+                prev_score = current_score
+            
+            result.position = position
+            result.class_average = Decimal(str(round(avg_score, 2)))
+            result.total_students = total_students
+            result.highest_score = Decimal(str(highest))
+            result.lowest_score = Decimal(str(lowest))
+        
         ExamResult.objects.bulk_update(
             sorted_results,
             ['position', 'class_average', 'total_students', 'highest_score', 'lowest_score']

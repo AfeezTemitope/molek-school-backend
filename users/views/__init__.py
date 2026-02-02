@@ -49,6 +49,7 @@ from .portal import (
     StudentLoginView,
     StudentProfileView,
     StudentChangePasswordView,
+    StudentDashboardStatsView,  # Added this import
     StudentGradesView,
     StudentCAScoresView,
     StudentExamResultsView,
@@ -91,6 +92,7 @@ __all__ = [
     'StudentLoginView',
     'StudentProfileView',
     'StudentChangePasswordView',
+    'StudentDashboardStatsView',  # Added this export
     'StudentGradesView',
     'StudentCAScoresView',
     'StudentExamResultsView',

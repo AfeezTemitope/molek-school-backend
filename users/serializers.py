@@ -529,45 +529,153 @@ class CAScoreSerializer(serializers.ModelSerializer):
 
 
 class CAScoreBulkUploadSerializer(serializers.Serializer):
-    """Serializer for bulk CA score upload"""
-
-    admission_number = serializers.CharField(max_length=50)
-    subject_code = serializers.CharField(max_length=10)
-    subject_name = serializers.CharField(
-        max_length=100, required=False, allow_blank=True
-    )
-    ca_score = serializers.IntegerField(min_value=0, max_value=100)
+    """
+    Accepts CSV with: admission_number, subject, ca_score
+    Subject is matched by NAME (not code)
+    """
+    admission_number = serializers.CharField(max_length=20)
+    subject = serializers.CharField(max_length=100)  # Subject NAME
+    ca_score = serializers.IntegerField(min_value=0, max_value=30)
+    
+    def validate(self, data):
+        # Find student
+        try:
+            student = ActiveStudent.objects.get(admission_number=data['admission_number'])
+            data['student'] = student
+        except ActiveStudent.DoesNotExist:
+            raise serializers.ValidationError(f"Student not found: {data['admission_number']}")
+        
+        # Find subject by NAME
+        try:
+            subject = Subject.objects.get(name__iexact=data['subject'])
+            data['subject_obj'] = subject
+        except Subject.DoesNotExist:
+            raise serializers.ValidationError(f"Subject not found: {data['subject']}")
+        
+        return data
 
 
 # ==============================
 # EXAM RESULT SERIALIZERS
 # ==============================
 class ExamResultSerializer(serializers.ModelSerializer):
-    """Serializer for Exam Result model"""
+    """
+    Serializer for Exam Result model
+    
+    FIXED: Now handles PUT/PATCH requests properly by:
+    - Making student, subject, session, term optional on update
+    - Properly validating scores
+    - Auto-calculating total and grade on save
+    """
+    # Read-only display fields
     student_name = serializers.SerializerMethodField()
     subject_name = serializers.SerializerMethodField()
     admission_number = serializers.SerializerMethodField()
+    session_name = serializers.SerializerMethodField()
+    term_name = serializers.SerializerMethodField()
 
     class Meta:
         model = ExamResult
         fields = [
-            'id', 'student', 'student_name', 'admission_number',
-            'subject', 'subject_name', 'session', 'term',
-            'ca_score', 'theory_score', 'exam_score', 'total_exam_questions',
+            'id', 
+            'student', 'student_name', 'admission_number',
+            'subject', 'subject_name', 
+            'session', 'session_name',
+            'term', 'term_name',
+            'ca_score', 'theory_score', 'exam_score', 
+            'total_exam_questions',
             'total_score', 'grade', 'position', 'class_average',
             'total_students', 'highest_score', 'lowest_score',
             'submitted_at', 'uploaded_at'
         ]
         read_only_fields = ['id', 'total_score', 'grade', 'uploaded_at']
+        extra_kwargs = {
+            # Make FK fields optional on update (they can't change anyway)
+            'student': {'required': False},
+            'subject': {'required': False},
+            'session': {'required': False},
+            'term': {'required': False},
+        }
 
     def get_student_name(self, obj):
         return f"{obj.student.first_name} {obj.student.last_name}"
 
     def get_subject_name(self, obj):
         return obj.subject.name
-
+    
     def get_admission_number(self, obj):
         return obj.student.admission_number
+    
+    def get_session_name(self, obj):
+        return obj.session.name if obj.session else None
+    
+    def get_term_name(self, obj):
+        return obj.term.name if obj.term else None
+
+    def validate_ca_score(self, value):
+        """CA score max 30"""
+        if value is not None and value > 30:
+            raise serializers.ValidationError("CA score cannot exceed 30")
+        return value or 0
+
+    def validate_theory_score(self, value):
+        """Theory score validation"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Theory score cannot be negative")
+        return value or 0
+
+    def validate_exam_score(self, value):
+        """Exam score max 70"""
+        if value is not None and value > 70:
+            raise serializers.ValidationError("Exam score cannot exceed 70")
+        return value or 0
+
+    def validate(self, attrs):
+        """
+        Cross-field validation:
+        - On CREATE: student, subject, session, term are required
+        - On UPDATE: only scores can be changed
+        """
+        # If this is a create (no instance), require FKs
+        if not self.instance:
+            required_fields = ['student', 'subject', 'session', 'term']
+            for field in required_fields:
+                if field not in attrs or attrs[field] is None:
+                    raise serializers.ValidationError({
+                        field: f"{field} is required"
+                    })
+        
+        # Validate total doesn't exceed 100
+        ca = attrs.get('ca_score', getattr(self.instance, 'ca_score', 0) if self.instance else 0) or 0
+        theory = attrs.get('theory_score', getattr(self.instance, 'theory_score', 0) if self.instance else 0) or 0
+        exam = attrs.get('exam_score', getattr(self.instance, 'exam_score', 0) if self.instance else 0) or 0
+        
+        # Convert Decimal to float for comparison
+        total = float(ca) + float(theory) + float(exam)
+        if total > 100:
+            raise serializers.ValidationError({
+                'non_field_errors': f"Total score ({total}) cannot exceed 100"
+            })
+        
+        return attrs
+
+    def update(self, instance, validated_data):
+        """
+        Handle update - only allow score fields to change
+        FK fields (student, subject, session, term) cannot change after creation
+        """
+        # Remove FK fields from validated_data - they shouldn't change
+        validated_data.pop('student', None)
+        validated_data.pop('subject', None)
+        validated_data.pop('session', None)
+        validated_data.pop('term', None)
+        
+        # Update score fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        return instance
 
 class ExamResultUploadSerializer(serializers.Serializer):
     """
@@ -608,6 +716,8 @@ class ExamResultBulkUploadSerializer(serializers.Serializer):
     submitted_at = serializers.DateTimeField(
         input_formats=["%Y-%m-%d %H:%M:%S", "iso-8601"], required=False, allow_null=True
     )
+    
+
 
 
 # ==============================
@@ -637,6 +747,74 @@ class StudentLoginSerializer(serializers.Serializer):
 
         attrs["student"] = student
         return attrs
+        
+# ==============================
+# STUDENT PORTAL SERIALIZER (COMPLETE DATA)
+# ==============================
+class StudentPortalSerializer(serializers.ModelSerializer):
+    """
+    Complete serializer for student portal - includes ALL fields needed
+    for Dashboard, Profile, Settings pages.
+    
+    Returns:
+    - Personal info (name, DOB, gender, contact)
+    - Class info (class_level_name, enrollment_session_name)  
+    - Parent info
+    - Status (is_active)
+    - Passport URL (Cloudinary)
+    """
+    full_name = serializers.CharField(read_only=True)
+    class_level_name = serializers.SerializerMethodField()
+    enrollment_session_name = serializers.SerializerMethodField()
+    passport_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ActiveStudent
+        fields = [
+            'id',
+            'admission_number',
+            'first_name',
+            'middle_name',
+            'last_name',
+            'full_name',
+            'date_of_birth',
+            'gender',
+            'email',
+            'phone_number',
+            'address',
+            'state_of_origin',
+            'local_govt_area',
+            'class_level',
+            'class_level_name',
+            'enrollment_session',
+            'enrollment_session_name',
+            'parent_name',
+            'parent_email',
+            'parent_phone',
+            'passport_url',
+            'is_active',
+        ]
+
+    def get_class_level_name(self, obj):
+        """Return class level name"""
+        if obj.class_level:
+            return obj.class_level.name
+        return None
+
+    def get_enrollment_session_name(self, obj):
+        """Return enrollment session name"""
+        if obj.enrollment_session:
+            return obj.enrollment_session.name
+        return None
+
+    def get_passport_url(self, obj):
+        """Return Cloudinary URL for passport"""
+        if obj.passport:
+            try:
+                return obj.passport.url
+            except:
+                return None
+        return None
 
 
 # ==============================

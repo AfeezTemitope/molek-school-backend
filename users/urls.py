@@ -25,6 +25,7 @@ from .views import (
     StudentLoginView,
     StudentProfileView,
     StudentChangePasswordView,
+    StudentDashboardStatsView,  # Added this import
     StudentGradesView,
     StudentCAScoresView,
     StudentExamResultsView,
@@ -57,12 +58,13 @@ urlpatterns = [
     # Profile & Account
     path('student-portal/profile/', StudentProfileView.as_view(), name='student-profile'),
     path('student-portal/change-password/', StudentChangePasswordView.as_view(), name='student-change-password'),
+    path('student-portal/dashboard-stats/', StudentDashboardStatsView.as_view(), name='student-dashboard-stats'),
+    path('student-portal/report-card/', StudentReportCardView.as_view(), name='student-report-card'),
     
     # Academic Records
     path('student-portal/grades/', StudentGradesView.as_view(), name='student-grades'),
     path('student-portal/ca-scores/', StudentCAScoresView.as_view(), name='student-ca-scores'),
     path('student-portal/exam-results/', StudentExamResultsView.as_view(), name='student-exam-results'),
-    path('student-portal/report-card/', StudentReportCardView.as_view(), name='student-report-card'),
     
     # Academic Setup
     path('student-portal/sessions/', StudentSessionsView.as_view(), name='student-sessions'),
