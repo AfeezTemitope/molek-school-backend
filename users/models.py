@@ -1,6 +1,11 @@
 """
 MOLEK School - Database Models
-Enhanced with proper indexing and query optimization
+Updated with Nigerian Secondary School Grading Structure:
+- CA1: 15 marks (manual)
+- CA2: 15 marks (manual)
+- OBJ/CBT: 30 marks (from CBT system)
+- Theory: 40 marks (manual)
+- Total: 100 marks
 """
 from datetime import datetime
 from django.contrib.auth.hashers import make_password
@@ -244,6 +249,16 @@ class Term(models.Model):
         if self.is_current:
             Term.objects.filter(session=self.session, is_current=True).update(is_current=False)
         super().save(*args, **kwargs)
+    
+    @property
+    def term_number(self):
+        """Return term number (1, 2, or 3)"""
+        term_map = {
+            'First Term': 1,
+            'Second Term': 2,
+            'Third Term': 3
+        }
+        return term_map.get(self.name, 0)
 
 
 class ClassLevel(models.Model):
@@ -399,11 +414,19 @@ class ActiveStudent(models.Model):
         super().save(*args, **kwargs)
 
 
+# ==============================================================================
+# NIGERIAN SCHOOL GRADING MODELS
+# CA1 (15) + CA2 (15) + OBJ/CBT (30) + Theory (40) = 100
+# ==============================================================================
+
 class CAScore(models.Model):
     """
-    Continuous Assessment + Theory Score Model
+    Continuous Assessment Score Model (CA1 + CA2)
     
-    Grading Formula: CA (30) + Theory (varies) + Exam (varies) = 100
+    Nigerian School Grading Formula:
+    - CA1: 15 marks (manual entry by teacher)
+    - CA2: 15 marks (manual entry by teacher)
+    - Total CA: 30 marks
     """
     
     student = models.ForeignKey(
@@ -431,29 +454,22 @@ class CAScore(models.Model):
         db_index=True
     )
     
-    # CA Score (max 30)
-    ca_score = models.DecimalField(
+    # CA1 Score (max 15)
+    ca1_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(30)],
-        help_text="Continuous Assessment score (max 30)"
-    )
-    
-    # Theory Score (varies based on teacher's discretion)
-    theory_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        validators=[MinValueValidator(0)],
-        help_text="Theory/essay score (varies by exam)",
+        validators=[MinValueValidator(0), MaxValueValidator(15)],
+        help_text="First Continuous Assessment score (max 15)",
         default=0
     )
     
-    # Maximum possible theory score for this subject/exam
-    max_theory_score = models.DecimalField(
+    # CA2 Score (max 15)
+    ca2_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=30,
-        help_text="Maximum possible theory score"
+        validators=[MinValueValidator(0), MaxValueValidator(15)],
+        help_text="Second Continuous Assessment score (max 15)",
+        default=0
     )
     
     uploaded_by = models.ForeignKey(
@@ -471,29 +487,37 @@ class CAScore(models.Model):
             models.Index(fields=['session', 'term'], name='cascore_session_term_idx'),
             models.Index(fields=['student', 'session'], name='cascore_student_session_idx'),
         ]
-        verbose_name = 'CA & Theory Score'
-        verbose_name_plural = 'CA & Theory Scores'
+        verbose_name = 'CA Score (CA1 + CA2)'
+        verbose_name_plural = 'CA Scores'
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"{self.student.admission_number} - {self.subject.name}: CA={self.ca_score}, Theory={self.theory_score}"
+        return f"{self.student.admission_number} - {self.subject.name}: CA1={self.ca1_score}, CA2={self.ca2_score}"
     
     @property
-    def total_non_exam_score(self):
-        """CA + Theory combined score"""
-        return self.ca_score + self.theory_score
+    def total_ca_score(self):
+        """CA1 + CA2 combined score (max 30)"""
+        return (self.ca1_score or 0) + (self.ca2_score or 0)
 
 
 class ExamResult(models.Model):
     """
     Final Exam Result Model
     
-    Combines:
-    - CA Score (from CAScore model, max 30)
-    - Theory Score (from CAScore model, varies)
-    - Exam Score (from CBT, varies)
+    Nigerian School Grading Formula:
+    - CA1: 15 marks (from CAScore model)
+    - CA2: 15 marks (from CAScore model)
+    - OBJ/CBT: 30 marks (from CBT exam - RAW score, not scaled)
+    - Theory: 40 marks (manual entry by teacher)
+    - Total: 100 marks
     
-    Total = CA + Theory + Exam = 100
+    Grading Scale:
+    - A: 75-100 (Excellent)
+    - B: 70-74 (Very Good)
+    - C: 60-69 (Good)
+    - D: 50-59 (Pass)
+    - E: 45-49 (Fair)
+    - F: 0-44 (Fail)
     """
     
     student = models.ForeignKey(
@@ -521,50 +545,138 @@ class ExamResult(models.Model):
         db_index=True
     )
     
-    # Scores
-    ca_score = models.DecimalField(
+    # =====================
+    # SCORE COMPONENTS
+    # =====================
+    
+    # CA1 Score (max 15) - copied from CAScore
+    ca1_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        help_text="CA score (from CAScore, max 30)"
+        validators=[MinValueValidator(0), MaxValueValidator(15)],
+        help_text="First Continuous Assessment (max 15)",
+        default=0
     )
+    
+    # CA2 Score (max 15) - copied from CAScore
+    ca2_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(15)],
+        help_text="Second Continuous Assessment (max 15)",
+        default=0
+    )
+    
+    # OBJ/CBT Score (max 30) - from CBT system (RAW score, NOT scaled)
+    obj_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(30)],
+        help_text="Objective/CBT score (max 30) - RAW score from CBT",
+        default=0
+    )
+    
+    # Theory Score (max 40) - manual entry
     theory_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        help_text="Theory score (from CAScore)",
+        validators=[MinValueValidator(0), MaxValueValidator(40)],
+        help_text="Theory/Essay score (max 40)",
         default=0
     )
-    exam_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        help_text="Exam score (from CBT)"
-    )
-    total_exam_questions = models.IntegerField(
-        default=0,
-        help_text="Total MCQ questions in the exam"
+    
+    # CBT metadata
+    total_obj_questions = models.IntegerField(
+        default=30,
+        help_text="Total MCQ questions in the CBT exam"
     )
     
-    # Calculated fields
+    # =====================
+    # CALCULATED FIELDS
+    # =====================
+    
+    # Total Score (CA1 + CA2 + OBJ + Theory = 100)
     total_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        help_text="CA + Theory + Exam (should = 100)"
-    )
-    grade = models.CharField(
-        max_length=2,
-        help_text="Grade (A, B, C, D, F)",
-        db_index=True
+        help_text="CA1 + CA2 + OBJ + Theory (max 100)",
+        default=0
     )
     
-    # Class statistics
-    position = models.IntegerField(null=True, blank=True)
+    # Grade (A, B, C, D, E, F)
+    grade = models.CharField(
+        max_length=2,
+        help_text="Grade based on Nigerian grading scale",
+        db_index=True,
+        default='F'
+    )
+    
+    # Grade Remark
+    remark = models.CharField(
+        max_length=20,
+        help_text="Grade remark (Excellent, Very Good, Good, Pass, Fair, Fail)",
+        default='Fail'
+    )
+    
+    # =====================
+    # CLASS STATISTICS
+    # =====================
+    
+    position = models.IntegerField(null=True, blank=True, help_text="Position in class for this subject")
     class_average = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     total_students = models.IntegerField(null=True, blank=True)
     highest_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     lowest_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     
-    # Metadata
-    submitted_at = models.DateTimeField(null=True, blank=True)
+    # =====================
+    # CUMULATIVE SCORES (for report cards)
+    # =====================
+    
+    # Store previous term totals for cumulative calculation
+    first_term_total = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="First term total (for cumulative calculation)"
+    )
+    second_term_total = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Second term total (for cumulative calculation)"
+    )
+    third_term_total = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Third term total (for cumulative calculation)"
+    )
+    
+    # Cumulative score (average of available terms)
+    cumulative_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Cumulative average across terms"
+    )
+    cumulative_grade = models.CharField(
+        max_length=2,
+        blank=True,
+        null=True,
+        help_text="Grade based on cumulative score"
+    )
+    
+    # =====================
+    # METADATA
+    # =====================
+    
+    submitted_at = models.DateTimeField(null=True, blank=True, help_text="CBT submission timestamp")
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     uploaded_by = models.ForeignKey(
         UserProfile,
         on_delete=models.SET_NULL,
@@ -586,21 +698,173 @@ class ExamResult(models.Model):
         return f"{self.student.admission_number} - {self.subject.name}: {self.total_score} ({self.grade})"
     
     def save(self, *args, **kwargs):
-        # Auto-calculate total and grade
-        self.total_score = self.ca_score + self.theory_score + self.exam_score
-        self.grade = self.calculate_grade(self.total_score)
+        # Auto-calculate total score
+        self.total_score = (
+            (self.ca1_score or 0) +
+            (self.ca2_score or 0) +
+            (self.obj_score or 0) +
+            (self.theory_score or 0)
+        )
+        
+        # Auto-calculate grade and remark
+        self.grade, self.remark = self.calculate_grade(self.total_score)
+        
+        # Calculate cumulative score if we have term data
+        self._calculate_cumulative()
+        
         super().save(*args, **kwargs)
     
+    def _calculate_cumulative(self):
+        """Calculate cumulative score based on available term totals"""
+        term_scores = []
+        
+        if self.first_term_total is not None:
+            term_scores.append(float(self.first_term_total))
+        if self.second_term_total is not None:
+            term_scores.append(float(self.second_term_total))
+        if self.third_term_total is not None:
+            term_scores.append(float(self.third_term_total))
+        
+        # Add current term's total if not already in the list
+        current_total = float(self.total_score)
+        term_name = self.term.name if self.term else ''
+        
+        if term_name == 'First Term' and self.first_term_total is None:
+            self.first_term_total = self.total_score
+            term_scores.append(current_total)
+        elif term_name == 'Second Term' and self.second_term_total is None:
+            self.second_term_total = self.total_score
+            term_scores.append(current_total)
+        elif term_name == 'Third Term' and self.third_term_total is None:
+            self.third_term_total = self.total_score
+            term_scores.append(current_total)
+        
+        if term_scores:
+            self.cumulative_score = sum(term_scores) / len(term_scores)
+            self.cumulative_grade, _ = self.calculate_grade(self.cumulative_score)
+    
     @staticmethod
-    def calculate_grade(total_score):
-        """Calculate grade based on total score (out of 100)"""
-        if total_score >= 70:
-            return 'A'
-        elif total_score >= 60:
-            return 'B'
-        elif total_score >= 50:
-            return 'C'
-        elif total_score >= 40:
-            return 'D'
+    def calculate_grade(score):
+        """
+        Calculate grade based on Nigerian Secondary School grading scale
+        
+        Returns: (grade, remark) tuple
+        """
+        score = float(score) if score else 0
+        
+        if score >= 75:
+            return ('A', 'Excellent')
+        elif score >= 70:
+            return ('B', 'Very Good')
+        elif score >= 60:
+            return ('C', 'Good')
+        elif score >= 50:
+            return ('D', 'Pass')
+        elif score >= 45:
+            return ('E', 'Fair')
         else:
-            return 'F'
+            return ('F', 'Fail')
+    
+    @property
+    def total_ca(self):
+        """Combined CA score (CA1 + CA2)"""
+        return (self.ca1_score or 0) + (self.ca2_score or 0)
+    
+    @property
+    def exam_total(self):
+        """Combined exam score (OBJ + Theory)"""
+        return (self.obj_score or 0) + (self.theory_score or 0)
+
+
+# ==============================================================================
+# PROMOTION RULES (CONFIGURABLE)
+# ==============================================================================
+
+class PromotionRule(models.Model):
+    """
+    Configurable promotion rules for Nigerian Secondary Schools
+    
+    Default: Student must pass Math + English + 5 other subjects with >= 50%
+    """
+    
+    PROMOTION_MODE_CHOICES = [
+        ('auto', 'Automatic (system decides)'),
+        ('recommend', 'Recommend (admin approves)'),
+        ('manual', 'Manual (admin decides)'),
+    ]
+    
+    session = models.ForeignKey(
+        AcademicSession,
+        on_delete=models.CASCADE,
+        related_name='promotion_rules'
+    )
+    
+    # Class level (NULL = applies to all classes)
+    class_level = models.ForeignKey(
+        ClassLevel,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Leave blank to apply to all classes"
+    )
+    
+    # Pass mark configuration
+    pass_mark_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        help_text="Minimum cumulative score to pass (default 50%)"
+    )
+    
+    # Compulsory subjects (stored as JSON array of subject IDs)
+    compulsory_subject_ids = models.JSONField(
+        default=list,
+        help_text="List of subject IDs that must be passed (e.g., Math, English)"
+    )
+    
+    # Additional subjects requirement
+    minimum_additional_subjects = models.IntegerField(
+        default=5,
+        help_text="Minimum number of other subjects to pass (default 5)"
+    )
+    
+    # Promotion mode
+    promotion_mode = models.CharField(
+        max_length=20,
+        choices=PROMOTION_MODE_CHOICES,
+        default='recommend'
+    )
+    
+    # Carryover settings
+    allow_carryover = models.BooleanField(
+        default=False,
+        help_text="Allow students to be promoted with failed subjects"
+    )
+    max_carryover_subjects = models.IntegerField(
+        default=2,
+        help_text="Maximum failed subjects allowed for carryover"
+    )
+    
+    # Metadata
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        UserProfile,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('session', 'class_level')
+        verbose_name = "Promotion Rule"
+        verbose_name_plural = "Promotion Rules"
+    
+    def __str__(self):
+        class_str = self.class_level.name if self.class_level else "All Classes"
+        return f"{self.session.name} - {class_str}: {self.pass_mark_percentage}%"
+    
+    @property
+    def total_minimum_subjects(self):
+        """Total subjects needed to pass = compulsory + additional"""
+        return len(self.compulsory_subject_ids) + self.minimum_additional_subjects
