@@ -1,6 +1,13 @@
 """
 MOLEK School - Student Portal Views
 Views for student authentication and self-service operations
+
+Updated for Nigerian Secondary School Grading:
+- CA1: 15 marks
+- CA2: 15 marks
+- OBJ/CBT: 30 marks
+- Theory: 40 marks
+- Total: 100 marks
 """
 import logging
 from decimal import Decimal
@@ -69,31 +76,45 @@ def get_student_portal_data(student):
 
 
 def get_grade(score):
-    """Convert score to letter grade"""
+    """
+    Convert score to letter grade using Nigerian Secondary School grading scale
+    
+    Grading Scale:
+    - A: 75-100 (Excellent)
+    - B: 70-74 (Very Good)
+    - C: 60-69 (Good)
+    - D: 50-59 (Pass)
+    - E: 45-49 (Fair)
+    - F: 0-44 (Fail)
+    """
     score = float(score) if score else 0
-    if score >= 70:
+    if score >= 75:
         return 'A'
-    elif score >= 60:
+    elif score >= 70:
         return 'B'
-    elif score >= 50:
+    elif score >= 60:
         return 'C'
-    elif score >= 40:
+    elif score >= 50:
         return 'D'
+    elif score >= 45:
+        return 'E'
     return 'F'
 
 
 def get_remark(score):
-    """Get remark based on score"""
+    """Get remark based on Nigerian grading scale"""
     score = float(score) if score else 0
-    if score >= 70:
+    if score >= 75:
         return 'Excellent'
-    elif score >= 60:
+    elif score >= 70:
         return 'Very Good'
-    elif score >= 50:
+    elif score >= 60:
         return 'Good'
-    elif score >= 40:
+    elif score >= 50:
+        return 'Pass'
+    elif score >= 45:
         return 'Fair'
-    return 'Poor'
+    return 'Fail'
 
 
 class StudentLoginView(APIView):
@@ -245,342 +266,19 @@ class StudentChangePasswordView(APIView):
         return Response({'message': 'Password changed successfully'})
 
 
-class StudentDashboardStatsView(APIView):
-    """Get dashboard statistics for a student."""
-    permission_classes = [AllowAny]
-    
-    def get(self, request):
-        admission_number = request.query_params.get('admission_number')
-        
-        if not admission_number:
-            return Response(
-                {'error': 'Admission number required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            student = ActiveStudent.objects.select_related(
-                'class_level', 'enrollment_session'
-            ).get(admission_number=admission_number.upper())
-        except ActiveStudent.DoesNotExist:
-            return Response(
-                {'error': 'Student not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Get all exam results for this student
-        results = ExamResult.objects.filter(student=student).select_related(
-            'session', 'term', 'subject'
-        )
-        
-        # Overall stats
-        total_exams = results.count()
-        if total_exams > 0:
-            avg_score = results.aggregate(avg=Avg('total_score'))['avg'] or 0
-            passed = results.filter(total_score__gte=40).count()
-            failed = total_exams - passed
-        else:
-            avg_score = 0
-            passed = 0
-            failed = 0
-        
-        # Get sessions with results
-        sessions_data = []
-        sessions = AcademicSession.objects.filter(
-            exam_results__student=student
-        ).distinct().order_by('-start_date')
-        
-        for session in sessions:
-            session_results = results.filter(session=session)
-            terms = Term.objects.filter(session=session).order_by('id')
-            
-            terms_data = []
-            for term in terms:
-                term_results = session_results.filter(term=term)
-                term_count = term_results.count()
-                
-                if term_count > 0:
-                    term_avg = term_results.aggregate(avg=Avg('total_score'))['avg'] or 0
-                    term_passed = term_results.filter(total_score__gte=40).count()
-                    terms_data.append({
-                        'id': term.id,
-                        'name': term.name,
-                        'totalExams': term_count,
-                        'averageScore': round(float(term_avg), 1),
-                        'passedSubjects': term_passed,
-                        'failedSubjects': term_count - term_passed,
-                        'grade': get_grade(term_avg),
-                    })
-            
-            # Session cumulative
-            session_count = session_results.count()
-            if session_count > 0:
-                session_avg = session_results.aggregate(avg=Avg('total_score'))['avg'] or 0
-                session_passed = session_results.filter(total_score__gte=40).count()
-            else:
-                session_avg = 0
-                session_passed = 0
-            
-            sessions_data.append({
-                'id': session.id,
-                'name': session.name,
-                'is_current': session.is_current,
-                'terms': terms_data,
-                'cumulative': {
-                    'totalExams': session_count,
-                    'averageScore': round(float(session_avg), 1),
-                    'passedSubjects': session_passed,
-                    'failedSubjects': session_count - session_passed,
-                    'grade': get_grade(session_avg),
-                }
-            })
-        
-        return Response({
-            'student': get_student_portal_data(student),
-            'overall': {
-                'totalExams': total_exams,
-                'averageScore': round(float(avg_score), 1),
-                'passedSubjects': passed,
-                'failedSubjects': failed,
-                'grade': get_grade(avg_score),
-            },
-            'sessions': sessions_data,
-        })
-
-
-class StudentReportCardView(APIView):
-    """
-    Generate report card data for a student.
-    
-    Query params:
-    - admission_number: Required
-    - session: Optional session ID (for single session report)
-    - term: Optional term ID (for single term report)
-    
-    Modes:
-    1. Single term report: ?session=X&term=Y
-    2. Full session cumulative: ?session=X (no term)
-    3. All sessions: no session/term params
-    """
-    permission_classes = [AllowAny]
-    
-    def get(self, request):
-        admission_number = request.query_params.get('admission_number')
-        session_id = request.query_params.get('session')
-        term_id = request.query_params.get('term')
-        
-        if not admission_number:
-            return Response(
-                {'error': 'Admission number required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            student = ActiveStudent.objects.select_related(
-                'class_level', 'enrollment_session'
-            ).get(admission_number=admission_number.upper())
-        except ActiveStudent.DoesNotExist:
-            return Response(
-                {'error': 'Student not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Determine report mode
-        if session_id and term_id:
-            return self._get_term_report(student, session_id, term_id)
-        elif session_id:
-            return self._get_session_report(student, session_id)
-        else:
-            return self._get_all_sessions_report(student)
-    
-    def _get_term_report(self, student, session_id, term_id):
-        """Get single term report with detailed breakdown"""
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-            term = Term.objects.get(id=term_id)
-        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-            return Response(
-                {'error': 'Invalid session or term'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        results = ExamResult.objects.filter(
-            student=student, session=session, term=term
-        ).select_related('subject').order_by('subject__name')
-        
-        subjects = []
-        for result in results:
-            ca_score = float(result.ca_score or 0)
-            theory_score = float(result.theory_score or 0)
-            exam_score = float(result.exam_score or 0)
-            total = float(result.total_score or 0)
-            
-            # Split CA into CA1 and CA2 for display (MOLEK format)
-            ca1 = round(ca_score / 2, 1)
-            ca2 = round(ca_score - ca1, 1)
-            
-            subjects.append({
-                'subjectName': result.subject.name,
-                'ca1': ca1,
-                'ca2': ca2,
-                'caTotal': ca_score,
-                'theoryScore': theory_score,
-                'examScore': exam_score,
-                'examTotal': theory_score + exam_score,  # Theory + Exam = 70
-                'totalScore': total,
-                'grade': result.grade or get_grade(total),
-                'position': result.position,
-                'totalStudents': result.total_students,
-                'classAverage': round(float(result.class_average or 0), 1),
-                'remark': get_remark(total),
-            })
-        
-        # Calculate summary
-        total_subjects = len(subjects)
-        if total_subjects > 0:
-            avg_score = sum(s['totalScore'] for s in subjects) / total_subjects
-            passed = len([s for s in subjects if s['totalScore'] >= 40])
-        else:
-            avg_score = 0
-            passed = 0
-        
-        return Response({
-            'student': get_student_portal_data(student),
-            'session': {
-                'id': session.id,
-                'name': session.name,
-            },
-            'term': {
-                'id': term.id,
-                'name': term.name,
-            },
-            'subjects': subjects,
-            'summary': {
-                'totalSubjects': total_subjects,
-                'averageScore': round(avg_score, 1),
-                'passedSubjects': passed,
-                'failedSubjects': total_subjects - passed,
-                'grade': get_grade(avg_score),
-            }
-        })
-    
-    def _get_session_report(self, student, session_id):
-        """Get full session report with cumulative scores across all terms"""
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-        except AcademicSession.DoesNotExist:
-            return Response(
-                {'error': 'Invalid session'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get all terms for this session
-        terms = Term.objects.filter(session=session).order_by('id')
-        term_order = {t.id: idx for idx, t in enumerate(terms)}
-        
-        # Get all results for this session
-        results = ExamResult.objects.filter(
-            student=student, session=session
-        ).select_related('subject', 'term')
-        
-        # Group by subject
-        subject_data = {}
-        for result in results:
-            subject_name = result.subject.name
-            if subject_name not in subject_data:
-                subject_data[subject_name] = {
-                    'terms': {},
-                }
-            
-            term_idx = term_order.get(result.term_id, 0)
-            term_name = result.term.name
-            
-            subject_data[subject_name]['terms'][term_name] = {
-                'total': float(result.total_score or 0),
-                'grade': result.grade or get_grade(result.total_score or 0),
-                'position': result.position,
-            }
-        
-        # Build cumulative report
-        cumulative_subjects = []
-        for subject_name, data in subject_data.items():
-            # Get scores for each term
-            first = data['terms'].get('First Term', {}).get('total', 0)
-            second = data['terms'].get('Second Term', {}).get('total', 0)
-            third = data['terms'].get('Third Term', {}).get('total', 0)
-            
-            terms_with_scores = sum([1 for t in [first, second, third] if t > 0])
-            cumulative_total = first + second + third
-            cumulative_avg = round(cumulative_total / terms_with_scores, 1) if terms_with_scores > 0 else 0
-            
-            # Get class average for cumulative
-            class_cumulative = ExamResult.objects.filter(
-                session=session, subject__name=subject_name,
-                student__class_level=student.class_level
-            ).aggregate(avg=Avg('total_score'))['avg'] or 0
-            
-            cumulative_subjects.append({
-                'subjectName': subject_name,
-                'firstTerm': first,
-                'secondTerm': second,
-                'thirdTerm': third,
-                'cumulativeTotal': cumulative_total,
-                'cumulativePercent': round((cumulative_total / (terms_with_scores * 100)) * 100, 1) if terms_with_scores > 0 else 0,
-                'studentAverage': cumulative_avg,
-                'classAverage': round(float(class_cumulative), 1),
-                'grade': get_grade(cumulative_avg),
-                'remark': get_remark(cumulative_avg),
-                'terms': data['terms'],
-            })
-        
-        # Sort subjects alphabetically
-        cumulative_subjects.sort(key=lambda x: x['subjectName'])
-        
-        # Overall cumulative
-        all_cumulative_totals = [s['cumulativeTotal'] for s in cumulative_subjects]
-        all_student_avgs = [s['studentAverage'] for s in cumulative_subjects if s['studentAverage'] > 0]
-        
-        overall_cumulative = sum(all_cumulative_totals)
-        overall_avg = round(sum(all_student_avgs) / len(all_student_avgs), 1) if all_student_avgs else 0
-        
-        return Response({
-            'student': get_student_portal_data(student),
-            'session': {
-                'id': session.id,
-                'name': session.name,
-            },
-            'terms': [{'id': t.id, 'name': t.name} for t in terms],
-            'subjects': cumulative_subjects,
-            'cumulative': {
-                'totalSubjects': len(cumulative_subjects),
-                'totalScore': overall_cumulative,
-                'averageScore': overall_avg,
-                'grade': get_grade(overall_avg),
-                'passedSubjects': len([s for s in cumulative_subjects if s['studentAverage'] >= 40]),
-                'failedSubjects': len([s for s in cumulative_subjects if s['studentAverage'] < 40]),
-            }
-        })
-    
-    def _get_all_sessions_report(self, student):
-        """Get report for all sessions"""
-        sessions = AcademicSession.objects.filter(
-            exam_results__student=student
-        ).distinct().order_by('-start_date')
-        
-        sessions_data = []
-        for session in sessions:
-            report = self._get_session_report(student, session.id)
-            if report.status_code == 200:
-                sessions_data.append(report.data)
-        
-        return Response({
-            'student': get_student_portal_data(student),
-            'sessions': sessions_data,
-        })
-
-
 class StudentGradesView(APIView):
-    """Get all grades for a student."""
+    """
+    Get all grades for a student.
+    
+    Returns Nigerian School Grading Format:
+    - ca1_score: First CA (max 15)
+    - ca2_score: Second CA (max 15)
+    - obj_score: OBJ/CBT score (max 30)
+    - theory_score: Theory/Essay score (max 40)
+    - total_score: Sum of all components (max 100)
+    - grade: A/B/C/D/E/F
+    - remark: Excellent/Very Good/Good/Pass/Fair/Fail
+    """
     permission_classes = [AllowAny]
     
     def get(self, request):
@@ -610,6 +308,7 @@ class StudentGradesView(APIView):
         
         grades = []
         for r in results:
+            # Nigerian School Grading Format
             grades.append({
                 'id': r.id,
                 'subject_name': r.subject.name,
@@ -617,21 +316,43 @@ class StudentGradesView(APIView):
                 'session_name': r.session.name,
                 'term': r.term.id,
                 'term_name': r.term.name,
-                'ca_score': float(r.ca_score),
-                'theory_score': float(r.theory_score),
-                'exam_score': float(r.exam_score),
-                'total_score': float(r.total_score),
+                # Score components (Nigerian format)
+                'ca1_score': float(r.ca1_score or 0),
+                'ca2_score': float(r.ca2_score or 0),
+                'obj_score': float(r.obj_score or 0),
+                'theory_score': float(r.theory_score or 0),
+                # Calculated fields
+                'total_ca': float((r.ca1_score or 0) + (r.ca2_score or 0)),
+                'exam_total': float((r.obj_score or 0) + (r.theory_score or 0)),
+                'total_score': float(r.total_score or 0),
                 'grade': r.grade,
+                'remark': r.remark,
+                # Class statistics
                 'position': r.position,
                 'total_students': r.total_students,
                 'class_average': float(r.class_average) if r.class_average else None,
+                'highest_score': float(r.highest_score) if r.highest_score else None,
+                'lowest_score': float(r.lowest_score) if r.lowest_score else None,
+                # Cumulative (for 2nd/3rd term)
+                'first_term_total': float(r.first_term_total) if r.first_term_total else None,
+                'second_term_total': float(r.second_term_total) if r.second_term_total else None,
+                'third_term_total': float(r.third_term_total) if r.third_term_total else None,
+                'cumulative_score': float(r.cumulative_score) if r.cumulative_score else None,
+                'cumulative_grade': r.cumulative_grade,
             })
         
         return Response({'grades': grades})
 
 
 class StudentCAScoresView(APIView):
-    """Get CA scores for a student."""
+    """
+    Get CA scores for a student.
+    
+    Returns:
+    - ca1_score: First CA (max 15)
+    - ca2_score: Second CA (max 15)
+    - total_ca: Combined CA score (max 30)
+    """
     permission_classes = [AllowAny]
     
     def get(self, request):
@@ -732,4 +453,313 @@ class StudentTermsView(APIView):
         terms = get_cached_terms(session_id)
         return Response({
             'terms': TermSerializer(terms, many=True).data
+        })
+
+
+class StudentDashboardStatsView(APIView):
+    """Get dashboard statistics for a student."""
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        admission_number = request.query_params.get('admission_number')
+        
+        if not admission_number:
+            return Response(
+                {'error': 'Admission number required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            student = ActiveStudent.objects.select_related(
+                'class_level', 'enrollment_session'
+            ).get(admission_number=admission_number.upper())
+        except ActiveStudent.DoesNotExist:
+            return Response(
+                {'error': 'Student not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all exam results for this student
+        results = ExamResult.objects.filter(student=student).select_related(
+            'session', 'term', 'subject'
+        )
+        
+        # Overall stats - using Nigerian pass mark (45 for E grade, 50 for D)
+        total_exams = results.count()
+        if total_exams > 0:
+            avg_score = results.aggregate(avg=Avg('total_score'))['avg'] or 0
+            passed = results.filter(total_score__gte=45).count()  # E grade or above
+            failed = total_exams - passed
+        else:
+            avg_score = 0
+            passed = 0
+            failed = 0
+        
+        # Get sessions with results
+        sessions_data = []
+        sessions = AcademicSession.objects.filter(
+            exam_results__student=student
+        ).distinct().order_by('-start_date')
+        
+        for session in sessions:
+            session_results = results.filter(session=session)
+            terms = Term.objects.filter(session=session).order_by('id')
+            
+            terms_data = []
+            for term in terms:
+                term_results = session_results.filter(term=term)
+                term_count = term_results.count()
+                
+                if term_count > 0:
+                    term_avg = term_results.aggregate(avg=Avg('total_score'))['avg'] or 0
+                    term_passed = term_results.filter(total_score__gte=45).count()
+                    terms_data.append({
+                        'id': term.id,
+                        'name': term.name,
+                        'totalExams': term_count,
+                        'averageScore': round(float(term_avg), 1),
+                        'passedSubjects': term_passed,
+                        'failedSubjects': term_count - term_passed,
+                        'grade': get_grade(term_avg),
+                        'remark': get_remark(term_avg),
+                    })
+            
+            # Session cumulative
+            session_count = session_results.count()
+            if session_count > 0:
+                session_avg = session_results.aggregate(avg=Avg('total_score'))['avg'] or 0
+                session_passed = session_results.filter(total_score__gte=45).count()
+            else:
+                session_avg = 0
+                session_passed = 0
+            
+            sessions_data.append({
+                'id': session.id,
+                'name': session.name,
+                'is_current': session.is_current,
+                'terms': terms_data,
+                'cumulative': {
+                    'totalExams': session_count,
+                    'averageScore': round(float(session_avg), 1),
+                    'passedSubjects': session_passed,
+                    'failedSubjects': session_count - session_passed,
+                    'grade': get_grade(session_avg),
+                    'remark': get_remark(session_avg),
+                }
+            })
+        
+        return Response({
+            'student': get_student_portal_data(student),
+            'overall': {
+                'totalExams': total_exams,
+                'averageScore': round(float(avg_score), 1),
+                'passedSubjects': passed,
+                'failedSubjects': failed,
+                'grade': get_grade(avg_score),
+                'remark': get_remark(avg_score),
+            },
+            'sessions': sessions_data,
+        })
+
+
+class StudentReportCardView(APIView):
+    """
+    Generate report card data for a student.
+    
+    Nigerian School Format:
+    - CA1: 15 marks
+    - CA2: 15 marks
+    - OBJ: 30 marks
+    - Theory: 40 marks
+    - Total: 100 marks
+    
+    Query params:
+    - admission_number: Required
+    - session: Optional session ID (for single session report)
+    - term: Optional term ID (for single term report)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        admission_number = request.query_params.get('admission_number')
+        session_id = request.query_params.get('session')
+        term_id = request.query_params.get('term')
+        
+        if not admission_number:
+            return Response(
+                {'error': 'Admission number required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            student = ActiveStudent.objects.select_related(
+                'class_level', 'enrollment_session'
+            ).get(admission_number=admission_number.upper())
+        except ActiveStudent.DoesNotExist:
+            return Response(
+                {'error': 'Student not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Determine report mode
+        if session_id and term_id:
+            return self._get_term_report(student, session_id, term_id)
+        elif session_id:
+            return self._get_session_report(student, session_id)
+        else:
+            return self._get_all_sessions_report(student)
+    
+    def _get_term_report(self, student, session_id, term_id):
+        """Get single term report with detailed breakdown"""
+        try:
+            session = AcademicSession.objects.get(id=session_id)
+            term = Term.objects.get(id=term_id)
+        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
+            return Response(
+                {'error': 'Invalid session or term'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        results = ExamResult.objects.filter(
+            student=student, session=session, term=term
+        ).select_related('subject').order_by('subject__name')
+        
+        subjects = []
+        for r in results:
+            subjects.append({
+                'subjectName': r.subject.name,
+                # Nigerian grading components
+                'ca1Score': float(r.ca1_score or 0),
+                'ca2Score': float(r.ca2_score or 0),
+                'totalCA': float((r.ca1_score or 0) + (r.ca2_score or 0)),
+                'objScore': float(r.obj_score or 0),
+                'theoryScore': float(r.theory_score or 0),
+                'examTotal': float((r.obj_score or 0) + (r.theory_score or 0)),
+                'totalScore': float(r.total_score or 0),
+                'grade': r.grade,
+                'remark': r.remark,
+                # Class statistics
+                'position': r.position,
+                'totalStudents': r.total_students,
+                'classAverage': float(r.class_average) if r.class_average else None,
+                'highestScore': float(r.highest_score) if r.highest_score else None,
+                'lowestScore': float(r.lowest_score) if r.lowest_score else None,
+            })
+        
+        # Summary stats
+        if subjects:
+            total_score = sum(s['totalScore'] for s in subjects)
+            avg_score = total_score / len(subjects)
+            passed = len([s for s in subjects if s['totalScore'] >= 45])
+        else:
+            total_score = 0
+            avg_score = 0
+            passed = 0
+        
+        return Response({
+            'student': get_student_portal_data(student),
+            'session': {'id': session.id, 'name': session.name},
+            'term': {'id': term.id, 'name': term.name},
+            'subjects': subjects,
+            'summary': {
+                'totalSubjects': len(subjects),
+                'totalScore': round(total_score, 1),
+                'averageScore': round(avg_score, 1),
+                'grade': get_grade(avg_score),
+                'remark': get_remark(avg_score),
+                'passedSubjects': passed,
+                'failedSubjects': len(subjects) - passed,
+            }
+        })
+    
+    def _get_session_report(self, student, session_id):
+        """Get cumulative session report"""
+        try:
+            session = AcademicSession.objects.get(id=session_id)
+        except AcademicSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        terms = Term.objects.filter(session=session).order_by('id')
+        
+        # Get all subjects for this session
+        subjects_in_session = ExamResult.objects.filter(
+            student=student, session=session
+        ).values_list('subject__name', flat=True).distinct()
+        
+        cumulative_subjects = []
+        
+        for subject_name in subjects_in_session:
+            term_scores = {}
+            
+            for term in terms:
+                result = ExamResult.objects.filter(
+                    student=student, session=session, term=term,
+                    subject__name=subject_name
+                ).first()
+                
+                if result:
+                    term_scores[term.name] = {
+                        'ca1': float(result.ca1_score or 0),
+                        'ca2': float(result.ca2_score or 0),
+                        'obj': float(result.obj_score or 0),
+                        'theory': float(result.theory_score or 0),
+                        'total': float(result.total_score or 0),
+                        'grade': result.grade,
+                    }
+                else:
+                    term_scores[term.name] = None
+            
+            # Calculate cumulative
+            valid_totals = [ts['total'] for ts in term_scores.values() if ts]
+            cumulative_avg = sum(valid_totals) / len(valid_totals) if valid_totals else 0
+            
+            cumulative_subjects.append({
+                'subjectName': subject_name,
+                'termScores': term_scores,
+                'cumulativeAverage': round(cumulative_avg, 1),
+                'cumulativeGrade': get_grade(cumulative_avg),
+                'cumulativeRemark': get_remark(cumulative_avg),
+                'termsCompleted': len(valid_totals),
+            })
+        
+        # Sort by subject name
+        cumulative_subjects.sort(key=lambda x: x['subjectName'])
+        
+        # Overall cumulative
+        all_avgs = [s['cumulativeAverage'] for s in cumulative_subjects if s['cumulativeAverage'] > 0]
+        overall_avg = sum(all_avgs) / len(all_avgs) if all_avgs else 0
+        
+        return Response({
+            'student': get_student_portal_data(student),
+            'session': {'id': session.id, 'name': session.name},
+            'terms': [{'id': t.id, 'name': t.name} for t in terms],
+            'subjects': cumulative_subjects,
+            'cumulative': {
+                'totalSubjects': len(cumulative_subjects),
+                'averageScore': round(overall_avg, 1),
+                'grade': get_grade(overall_avg),
+                'remark': get_remark(overall_avg),
+                'passedSubjects': len([s for s in cumulative_subjects if s['cumulativeAverage'] >= 45]),
+                'failedSubjects': len([s for s in cumulative_subjects if s['cumulativeAverage'] < 45]),
+            }
+        })
+    
+    def _get_all_sessions_report(self, student):
+        """Get report for all sessions"""
+        sessions = AcademicSession.objects.filter(
+            exam_results__student=student
+        ).distinct().order_by('-start_date')
+        
+        sessions_data = []
+        for session in sessions:
+            report = self._get_session_report(student, session.id)
+            if report.status_code == 200:
+                sessions_data.append(report.data)
+        
+        return Response({
+            'student': get_student_portal_data(student),
+            'sessions': sessions_data,
         })
