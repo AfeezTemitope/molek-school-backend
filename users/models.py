@@ -415,18 +415,19 @@ class ActiveStudent(models.Model):
 
 
 # ==============================================================================
-# NIGERIAN SCHOOL GRADING MODELS
-# CA1 (15) + CA2 (15) + OBJ/CBT (30) + Theory (40) = 100
+# FLEXIBLE GRADING MODELS
+# CA1 + CA2 + OBJ/CBT (RAW) + Theory = Total
+# Admin configures max marks for each component
 # ==============================================================================
 
 class CAScore(models.Model):
     """
     Continuous Assessment Score Model (CA1 + CA2)
     
-    Nigerian School Grading Formula:
-    - CA1: 15 marks (manual entry by teacher)
-    - CA2: 15 marks (manual entry by teacher)
-    - Total CA: 30 marks
+    Flexible Grading - Admin configures max marks:
+    - CA1: Flexible marks (e.g., 15 marks - manual entry)
+    - CA2: Flexible marks (e.g., 15 marks - manual entry)
+    - Can also be used for CBT-based CA if needed
     """
     
     student = models.ForeignKey(
@@ -454,21 +455,21 @@ class CAScore(models.Model):
         db_index=True
     )
     
-    # CA1 Score (max 15)
+    # CA1 Score (flexible marks, e.g., 15)
     ca1_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(15)],
-        help_text="First Continuous Assessment score (max 15)",
+        validators=[MinValueValidator(0)],
+        help_text="First Continuous Assessment score (flexible marks)",
         default=0
     )
     
-    # CA2 Score (max 15)
+    # CA2 Score (flexible marks, e.g., 15)
     ca2_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(15)],
-        help_text="Second Continuous Assessment score (max 15)",
+        validators=[MinValueValidator(0)],
+        help_text="Second Continuous Assessment score (flexible marks)",
         default=0
     )
     
@@ -504,14 +505,18 @@ class ExamResult(models.Model):
     """
     Final Exam Result Model
     
-    Nigerian School Grading Formula:
-    - CA1: 15 marks (from CAScore model)
-    - CA2: 15 marks (from CAScore model)
-    - OBJ/CBT: 30 marks (from CBT exam - RAW score, not scaled)
-    - Theory: 40 marks (manual entry by teacher)
-    - Total: 100 marks
+    Flexible Grading Structure - Admin configures max marks:
+    - CA1: Flexible marks (from CAScore model)
+    - CA2: Flexible marks (from CAScore model)
+    - OBJ/CBT: RAW score from CBT (no max - equals correct answers)
+    - Theory: Flexible marks (manual entry by teacher)
+    - Total: Sum of all components
     
-    Grading Scale:
+    OBJ Score Example:
+    - 20 questions, student gets 15 correct → obj_score = 15
+    - total_obj_questions = 20 (for reference)
+    
+    Grading Scale (applied to total):
     - A: 75-100 (Excellent)
     - B: 70-74 (Very Good)
     - C: 60-69 (Good)
@@ -546,48 +551,49 @@ class ExamResult(models.Model):
     )
     
     # =====================
-    # SCORE COMPONENTS
+    # SCORE COMPONENTS (All flexible - admin decides max values)
     # =====================
     
-    # CA1 Score (max 15) - copied from CAScore
+    # CA1 Score - copied from CAScore (flexible, e.g., 15 marks)
     ca1_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(15)],
-        help_text="First Continuous Assessment (max 15)",
+        validators=[MinValueValidator(0)],
+        help_text="First Continuous Assessment (flexible marks)",
         default=0
     )
     
-    # CA2 Score (max 15) - copied from CAScore
+    # CA2 Score - copied from CAScore (flexible, e.g., 15 marks)
     ca2_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(15)],
-        help_text="Second Continuous Assessment (max 15)",
+        validators=[MinValueValidator(0)],
+        help_text="Second Continuous Assessment (flexible marks)",
         default=0
     )
     
-    # OBJ/CBT Score (max 30) - from CBT system (RAW score, NOT scaled)
+    # OBJ/CBT Score - RAW score from CBT (no max limit)
+    # Score = number of correct answers (e.g., 15 out of 20 questions = 15)
     obj_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(30)],
-        help_text="Objective/CBT score (max 30) - RAW score from CBT",
+        validators=[MinValueValidator(0)],
+        help_text="Objective/CBT RAW score (equals correct answers, no scaling)",
         default=0
     )
     
-    # Theory Score (max 40) - manual entry
+    # Theory Score - manual entry (flexible, e.g., 40 marks)
     theory_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(40)],
-        help_text="Theory/Essay score (max 40)",
+        validators=[MinValueValidator(0)],
+        help_text="Theory/Essay score (flexible marks)",
         default=0
     )
     
-    # CBT metadata
+    # CBT metadata - tracks how many questions were in the exam
     total_obj_questions = models.IntegerField(
-        default=30,
+        default=0,
         help_text="Total MCQ questions in the CBT exam"
     )
     
@@ -867,4 +873,4 @@ class PromotionRule(models.Model):
     @property
     def total_minimum_subjects(self):
         """Total subjects needed to pass = compulsory + additional"""
-        return len(self.compulsory_subject_ids) + self.minimum_additional_subjects
+        return len(self.compulsory_subject_ids) + self.minimum_additional_subjects 
