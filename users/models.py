@@ -721,33 +721,65 @@ class ExamResult(models.Model):
         super().save(*args, **kwargs)
     
     def _calculate_cumulative(self):
-        """Calculate cumulative score based on available term totals"""
-        term_scores = []
+        """
+        Calculate cumulative score based on all term totals within the same session.
         
+        Logic per the spec:
+        - First Term:  cumulative = Term1 total (out of 100)
+        - Second Term: cumulative = (Term1 + Term2) / 2
+        - Third Term:  cumulative = (Term1 + Term2 + Term3) / 3
+        
+        This method queries the database for prior term results
+        to ensure accuracy even when saving a new term's result.
+        """
+        from .models import ExamResult, Term  # Local import to avoid circular
+    
+        term_name = self.term.name if self.term else ''
+        current_total = float(self.total_score)
+    
+        # Always reset term total fields based on current term
+        if term_name == 'First Term':
+            self.first_term_total = self.total_score
+        elif term_name == 'Second Term':
+            self.second_term_total = self.total_score
+        elif term_name == 'Third Term':
+            self.third_term_total = self.total_score
+    
+        # Query database for other terms' results in the same session
+        # for the same student and subject
+        if self.student_id and self.subject_id and self.session_id:
+            other_results = ExamResult.objects.filter(
+                student_id=self.student_id,
+                subject_id=self.subject_id,
+                session_id=self.session_id,
+            ).exclude(
+                pk=self.pk  # Exclude current record (may not exist yet if creating)
+            ).select_related('term')
+    
+            for result in other_results:
+                if result.term.name == 'First Term':
+                    self.first_term_total = result.total_score
+                elif result.term.name == 'Second Term':
+                    self.second_term_total = result.total_score
+                elif result.term.name == 'Third Term':
+                    self.third_term_total = result.total_score
+    
+        # Collect all available term scores
+        term_scores = []
         if self.first_term_total is not None:
             term_scores.append(float(self.first_term_total))
         if self.second_term_total is not None:
             term_scores.append(float(self.second_term_total))
         if self.third_term_total is not None:
             term_scores.append(float(self.third_term_total))
-        
-        # Add current term's total if not already in the list
-        current_total = float(self.total_score)
-        term_name = self.term.name if self.term else ''
-        
-        if term_name == 'First Term' and self.first_term_total is None:
-            self.first_term_total = self.total_score
-            term_scores.append(current_total)
-        elif term_name == 'Second Term' and self.second_term_total is None:
-            self.second_term_total = self.total_score
-            term_scores.append(current_total)
-        elif term_name == 'Third Term' and self.third_term_total is None:
-            self.third_term_total = self.total_score
-            term_scores.append(current_total)
-        
+    
+        # Calculate cumulative as AVERAGE of available terms
         if term_scores:
             self.cumulative_score = sum(term_scores) / len(term_scores)
             self.cumulative_grade, _ = self.calculate_grade(self.cumulative_score)
+        else:
+            self.cumulative_score = current_total
+            self.cumulative_grade, _ = self.calculate_grade(current_total)
     
     @staticmethod
     def calculate_grade(score):
