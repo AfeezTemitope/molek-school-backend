@@ -720,6 +720,8 @@ class ExamResult(models.Model):
         
         super().save(*args, **kwargs)
     
+    
+
     def _calculate_cumulative(self):
         """
         Calculate cumulative score based on all term totals within the same session.
@@ -732,11 +734,9 @@ class ExamResult(models.Model):
         This method queries the database for prior term results
         to ensure accuracy even when saving a new term's result.
         """
-        from .models import ExamResult, Term  # Local import to avoid circular
-    
         term_name = self.term.name if self.term else ''
         current_total = float(self.total_score)
-    
+
         # Always reset term total fields based on current term
         if term_name == 'First Term':
             self.first_term_total = self.total_score
@@ -744,7 +744,7 @@ class ExamResult(models.Model):
             self.second_term_total = self.total_score
         elif term_name == 'Third Term':
             self.third_term_total = self.total_score
-    
+
         # Query database for other terms' results in the same session
         # for the same student and subject
         if self.student_id and self.subject_id and self.session_id:
@@ -755,7 +755,7 @@ class ExamResult(models.Model):
             ).exclude(
                 pk=self.pk  # Exclude current record (may not exist yet if creating)
             ).select_related('term')
-    
+
             for result in other_results:
                 if result.term.name == 'First Term':
                     self.first_term_total = result.total_score
@@ -763,7 +763,7 @@ class ExamResult(models.Model):
                     self.second_term_total = result.total_score
                 elif result.term.name == 'Third Term':
                     self.third_term_total = result.total_score
-    
+
         # Collect all available term scores
         term_scores = []
         if self.first_term_total is not None:
@@ -772,7 +772,7 @@ class ExamResult(models.Model):
             term_scores.append(float(self.second_term_total))
         if self.third_term_total is not None:
             term_scores.append(float(self.third_term_total))
-    
+
         # Calculate cumulative as AVERAGE of available terms
         if term_scores:
             self.cumulative_score = sum(term_scores) / len(term_scores)
@@ -905,4 +905,4 @@ class PromotionRule(models.Model):
     @property
     def total_minimum_subjects(self):
         """Total subjects needed to pass = compulsory + additional"""
-        return len(self.compulsory_subject_ids) + self.minimum_additional_subjects 
+        return len(self.compulsory_subject_ids) + self.minimum_additional_subjects
