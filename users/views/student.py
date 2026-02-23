@@ -333,10 +333,22 @@ class ActiveStudentViewSet(viewsets.ModelViewSet):
         """
         Export students in CBT format.
         
+        Query params:
+            - class_level: Filter by class (e.g. 'JSS1'). Omit for all classes.
+        
         Format: admission_number, first_name, middle_name, last_name, class_level, password_plain
         """
+        class_level_name = request.query_params.get('class_level')
+        
+        students = ActiveStudent.objects.filter(is_active=True).select_related('class_level')
+        
+        if class_level_name:
+            students = students.filter(class_level__name=class_level_name)
+        
+        filename = f'students_cbt_{class_level_name}.csv' if class_level_name else 'students_for_cbt.csv'
+        
         response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="students_for_cbt.csv"'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         
         writer = csv.writer(response)
         writer.writerow([
@@ -344,9 +356,7 @@ class ActiveStudentViewSet(viewsets.ModelViewSet):
             'class_level', 'password_plain'
         ])
         
-        students = ActiveStudent.objects.filter(is_active=True).select_related('class_level')
-        
-        for student in students:
+        for student in students.order_by('class_level__name', 'last_name', 'first_name'):
             writer.writerow([
                 student.admission_number,
                 student.first_name,
