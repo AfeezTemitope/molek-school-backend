@@ -1,5 +1,7 @@
 """MOLEK School - Users App URL Configuration"""
 from django.urls import path
+from django.http import JsonResponse
+from django.db.models import Count
 from .views import (
     CustomTokenObtainPairView, ProfileView, ChangePasswordView,
     bulk_upload_ca_scores, bulk_upload_exam_results, get_ca_scores, get_exam_results,
@@ -9,9 +11,46 @@ from .views import (
     StudentExamResultsView, StudentReportCardView, StudentSessionsView, StudentTermsView,
 )
 
+
+# TEMPORARY DEBUG - Remove after checking
+def debug_check_dupes(request):
+    from .models import Subject, ActiveStudent, ExamResult
+    
+    dupes = []
+    for d in Subject.objects.values('name').annotate(count=Count('id')).filter(count__gt=1):
+        entries = []
+        for s in Subject.objects.filter(name=d['name']):
+            entries.append({
+                'id': s.id, 'code': s.code, 'active': s.is_active,
+                'results': ExamResult.objects.filter(subject=s).count()
+            })
+        dupes.append({'name': d['name'], 'count': d['count'], 'entries': entries})
+    
+    all_subjects = [
+        {'id': s.id, 'name': s.name, 'code': s.code, 'active': s.is_active,
+         'results': ExamResult.objects.filter(subject=s).count()}
+        for s in Subject.objects.all().order_by('name')
+    ]
+    
+    students = {
+        'total': ActiveStudent.objects.count(),
+        'active': ActiveStudent.objects.filter(is_active=True).count(),
+        'inactive': ActiveStudent.objects.filter(is_active=False).count(),
+    }
+    
+    return JsonResponse({
+        'duplicates': dupes,
+        'all_subjects': all_subjects,
+        'students': students,
+    })
+
+
 app_name = 'users'
 
 urlpatterns = [
+    # TEMPORARY DEBUG - Remove after checking
+    path('debug/check-dupes/', debug_check_dupes, name='debug-check-dupes'),
+    
     # ADMIN
     path('login/', CustomTokenObtainPairView.as_view(), name='admin-login'),
     path('profile/', ProfileView.as_view(), name='profile'),
