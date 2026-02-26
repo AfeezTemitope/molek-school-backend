@@ -673,7 +673,14 @@ class StudentReportCardView(APIView):
         })
     
     def _get_session_report(self, student, session_id):
-        """Get cumulative session report"""
+        """
+        Get cumulative session report matching MOLEK Recording Sheet format:
+        
+        CURRENT TERM: CA1, CA2, EXAM, TOTAL, POSITION, GRADE
+        CUMULATIVE: 1ST TERM B/F, 2ND TERM B/F, 3RD TERM B/F, TOTAL,
+                    CUMULATIVE MARK, %, AVG SCORE STUDENT, AVG SCORE CLASS,
+                    POSITION, GRADE, REMARKS
+        """
         try:
             session = AcademicSession.objects.get(id=session_id)
         except AcademicSession.DoesNotExist:
@@ -684,20 +691,27 @@ class StudentReportCardView(APIView):
         
         terms = Term.objects.filter(session=session).order_by('id')
         
-        # Get all subjects for this session
+        # Get unique subjects for this student in this session (deduplicate by subject_id)
         subjects_in_session = ExamResult.objects.filter(
             student=student, session=session
-        ).values_list('subject__name', flat=True).distinct()
+        ).values_list('subject_id', flat=True).distinct()
+        
+        # Get the student's class level for class average calculations
+        student_class = student.class_level
         
         cumulative_subjects = []
         
-        for subject_name in subjects_in_session:
+        for subject_id in subjects_in_session:
+            # Get subject name from any result for this subject
+            subject_obj = Subject.objects.get(id=subject_id)
+            subject_name = subject_obj.name
+            
             term_scores = {}
             
             for term in terms:
                 result = ExamResult.objects.filter(
                     student=student, session=session, term=term,
-                    subject__name=subject_name
+                    subject_id=subject_id
                 ).first()
                 
                 if result:
@@ -712,17 +726,70 @@ class StudentReportCardView(APIView):
                 else:
                     term_scores[term.name] = None
             
-            # Calculate cumulative
+            # Calculate cumulative for this student
             valid_totals = [ts['total'] for ts in term_scores.values() if ts]
-            cumulative_avg = sum(valid_totals) / len(valid_totals) if valid_totals else 0
+            cumulative_total = sum(valid_totals)
+            num_terms = len(valid_totals)
+            cumulative_avg = cumulative_total / num_terms if num_terms else 0
+            
+            # Calculate CLASS AVERAGE for this subject (cumulative across all students in same class)
+            class_avg = None
+            student_position = None
+            total_students_in_class = None
+            
+            if student_class:
+                # Get all students in this class who took this subject this session
+                class_results = ExamResult.objects.filter(
+                    session=session,
+                    subject_id=subject_id,
+                    student__class_level=student_class,
+                    student__is_active=True,
+                )
+                
+                # Build cumulative average for each student in the class
+                student_ids = class_results.values_list('student_id', flat=True).distinct()
+                class_cumulative_avgs = []
+                
+                for sid in student_ids:
+                    student_term_totals = []
+                    for term in terms:
+                        r = class_results.filter(student_id=sid, term=term).first()
+                        if r and r.total_score is not None:
+                            student_term_totals.append(float(r.total_score))
+                    
+                    if student_term_totals:
+                        s_avg = sum(student_term_totals) / len(student_term_totals)
+                        class_cumulative_avgs.append({
+                            'student_id': sid,
+                            'avg': round(s_avg, 2)
+                        })
+                
+                if class_cumulative_avgs:
+                    total_students_in_class = len(class_cumulative_avgs)
+                    class_avg = round(
+                        sum(s['avg'] for s in class_cumulative_avgs) / total_students_in_class, 1
+                    )
+                    
+                    # Sort descending to determine position
+                    class_cumulative_avgs.sort(key=lambda x: x['avg'], reverse=True)
+                    for idx, entry in enumerate(class_cumulative_avgs, 1):
+                        if entry['student_id'] == student.id:
+                            student_position = idx
+                            break
             
             cumulative_subjects.append({
                 'subjectName': subject_name,
                 'termScores': term_scores,
+                'cumulativeTotal': round(cumulative_total, 1),
+                'termsCompleted': num_terms,
+                'cumulativeMark': round(cumulative_total, 1),
+                'cumulativePercent': round(cumulative_avg, 1),
                 'cumulativeAverage': round(cumulative_avg, 1),
                 'cumulativeGrade': get_grade(cumulative_avg),
                 'cumulativeRemark': get_remark(cumulative_avg),
-                'termsCompleted': len(valid_totals),
+                'classAverage': class_avg,
+                'position': student_position,
+                'totalStudents': total_students_in_class,
             })
         
         # Sort by subject name
