@@ -77,6 +77,32 @@ def debug_check_dupes(request):
         'duplicate_results': dupe_results,
         'math_results': math_results,
     })
+def debug_cleanup_inactive(request):
+        from .models import ActiveStudent, ExamResult
+        
+        if request.GET.get('confirm') != 'yes':
+            inactive = ActiveStudent.objects.filter(is_active=False)
+            return JsonResponse({
+                'warning': 'This will permanently delete inactive students',
+                'inactive_count': inactive.count(),
+                'inactive_students': [
+                    {'id': s.id, 'adm': s.admission_number, 'name': s.full_name}
+                    for s in inactive[:50]
+                ],
+                'action': 'Add ?confirm=yes to URL to delete them'
+            })
+        
+        inactive = ActiveStudent.objects.filter(is_active=False)
+        count = inactive.count()
+        # Delete their exam results first, then the students
+        ExamResult.objects.filter(student__is_active=False).delete()
+        inactive.delete()
+        
+        return JsonResponse({
+            'deleted': count,
+            'remaining_total': ActiveStudent.objects.count(),
+            'remaining_active': ActiveStudent.objects.filter(is_active=True).count(),
+        })
 
 
 app_name = 'users'
@@ -84,6 +110,7 @@ app_name = 'users'
 urlpatterns = [
     # TEMPORARY DEBUG - Remove after checking
     path('debug/check-dupes/', debug_check_dupes, name='debug-check-dupes'),
+    path('debug/cleanup-inactive/', debug_cleanup_inactive, name='debug-cleanup'),
     
     # ADMIN
     path('login/', CustomTokenObtainPairView.as_view(), name='admin-login'),
