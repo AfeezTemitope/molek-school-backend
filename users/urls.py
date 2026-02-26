@@ -38,10 +38,44 @@ def debug_check_dupes(request):
         'inactive': ActiveStudent.objects.filter(is_active=False).count(),
     }
     
+    # Check for duplicate ExamResults (same student + subject + session + term)
+    duplicate_results = ExamResult.objects.values(
+        'student__admission_number', 'subject__name', 'session__name', 'term__name'
+    ).annotate(count=Count('id')).filter(count__gt=1)
+    
+    dupe_results = [
+        {
+            'student': d['student__admission_number'],
+            'subject': d['subject__name'],
+            'session': d['session__name'],
+            'term': d['term__name'],
+            'count': d['count'],
+        }
+        for d in duplicate_results
+    ]
+    
+    # Show all Math results to see what's going on
+    math_results = [
+        {
+            'id': r.id,
+            'student': r.student.admission_number,
+            'subject': r.subject.name,
+            'session': r.session.name,
+            'term': r.term.name,
+            'total': float(r.total_score),
+            'grade': r.grade,
+        }
+        for r in ExamResult.objects.filter(subject__name='Mathematics').select_related(
+            'student', 'subject', 'session', 'term'
+        ).order_by('student__admission_number', 'term__name')
+    ]
+    
     return JsonResponse({
         'duplicates': dupes,
         'all_subjects': all_subjects,
         'students': students,
+        'duplicate_results': dupe_results,
+        'math_results': math_results,
     })
 
 
