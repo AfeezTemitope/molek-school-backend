@@ -257,17 +257,39 @@ CACHE_TIMEOUT_STUDENT = 300      # 5 minutes - Student data
 CACHE_TIMEOUT_SCORE = 120        # 2 minutes - Scores/results (changes during upload)
 CACHE_TIMEOUT_SHORT = 60         # 1 minute - Very dynamic data
 
-# Cache configuration
-if DJANGO_ENV == "production":
-    # For production, use Redis if available, otherwise use database cache
+# Cache configuration - Use Redis if REDIS_URL is set, otherwise fallback
+REDIS_URL = config("REDIS_URL", default="")
+
+if REDIS_URL:
+    # Redis cache (Railway, etc.)
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "TIMEOUT": CACHE_TIMEOUT_ACADEMIC,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "SOCKET_CONNECT_TIMEOUT": 5,
+                "SOCKET_TIMEOUT": 5,
+                "RETRY_ON_TIMEOUT": True,
+                "MAX_CONNECTIONS": 20,
+            },
+            "KEY_PREFIX": "molek",
+        }
+    }
+    # Use Redis for sessions too
+    SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+    SESSION_CACHE_ALIAS = "default"
+elif DJANGO_ENV == "production":
+    # Fallback: database cache for production without Redis
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.db.DatabaseCache",
             "LOCATION": "django_cache_table",
-            "TIMEOUT": CACHE_TIMEOUT_ACADEMIC,  # Default timeout
+            "TIMEOUT": CACHE_TIMEOUT_ACADEMIC,
             "OPTIONS": {
                 "MAX_ENTRIES": 1000,
-                "CULL_FREQUENCY": 3,  # Remove 1/3 of entries when max reached
+                "CULL_FREQUENCY": 3,
             }
         }
     }
