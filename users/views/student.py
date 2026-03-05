@@ -207,7 +207,7 @@ class ActiveStudentViewSet(viewsets.ModelViewSet):
         csv_file = request.FILES['file']
         
         try:
-            decoded_file = csv_file.read().decode('utf-8')
+            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
         except UnicodeDecodeError:
             return Response(
                 {'error': 'Invalid file encoding. Please save CSV as UTF-8.'},
@@ -216,6 +216,10 @@ class ActiveStudentViewSet(viewsets.ModelViewSet):
         
         io_string = io.StringIO(decoded_file)
         reader = csv.DictReader(io_string)
+        
+        # Clean column headers (strip whitespace)
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
         
         created_students = []
         errors = []
@@ -232,7 +236,21 @@ class ActiveStudentViewSet(viewsets.ModelViewSet):
         for row in reader:
             row_num += 1
             try:
-                serializer = StudentBulkUploadSerializer(data=row)
+                # Clean all values: strip whitespace
+                cleaned_row = {k.strip(): v.strip() if isinstance(v, str) else v for k, v in row.items() if k}
+                
+                # Normalize: class_level and gender to uppercase
+                if 'class_level' in cleaned_row:
+                    cleaned_row['class_level'] = cleaned_row['class_level'].upper()
+                if 'gender' in cleaned_row:
+                    cleaned_row['gender'] = cleaned_row['gender'].upper()
+                
+                # Title case names for consistency
+                for name_field in ['first_name', 'middle_name', 'last_name', 'parent_name']:
+                    if name_field in cleaned_row and cleaned_row[name_field]:
+                        cleaned_row[name_field] = cleaned_row[name_field].strip().title()
+                
+                serializer = StudentBulkUploadSerializer(data=cleaned_row)
                 if not serializer.is_valid():
                     errors.append({
                         'row': row_num,

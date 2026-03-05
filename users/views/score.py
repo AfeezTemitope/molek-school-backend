@@ -121,11 +121,13 @@ class CAScoreViewSet(viewsets.ModelViewSet):
         csv_file = request.FILES['file']
         
         try:
-            decoded_file = csv_file.read().decode('utf-8')
+            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
         except UnicodeDecodeError:
             return Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
         
         reader = csv.DictReader(io.StringIO(decoded_file))
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
         
         created, updated, subjects_created = 0, 0, 0
         errors = []
@@ -255,11 +257,13 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         csv_file = request.FILES['file']
         
         try:
-            decoded_file = csv_file.read().decode('utf-8')
+            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
         except UnicodeDecodeError:
             return Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
         
         reader = csv.DictReader(io.StringIO(decoded_file))
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
         
         created, updated, subjects_created = 0, 0, 0
         missing_ca, errors = [], []
@@ -357,11 +361,13 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         csv_file = request.FILES['file']
         
         try:
-            decoded_file = csv_file.read().decode('utf-8')
+            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
         except UnicodeDecodeError:
             return Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
         
         reader = csv.DictReader(io.StringIO(decoded_file))
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
         
         created, updated, subjects_created = 0, 0, 0
         errors = []
@@ -545,8 +551,10 @@ def bulk_upload_ca_scores(request):
         return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        decoded_file = csv_file.read().decode('utf-8')
+        decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
         reader = csv.DictReader(io.StringIO(decoded_file))
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
         rows = list(reader)
     except Exception as e:
         return Response({'error': f'Failed to parse CSV: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
@@ -646,8 +654,10 @@ def bulk_upload_exam_results(request):
         return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        decoded_file = csv_file.read().decode('utf-8')
+        decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
         reader = csv.DictReader(io.StringIO(decoded_file))
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
         rows = list(reader)
     except Exception as e:
         return Response({'error': f'Failed to parse CSV: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
