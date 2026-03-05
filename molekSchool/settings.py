@@ -203,7 +203,7 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 100,
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
@@ -273,6 +273,7 @@ if REDIS_URL:
                 "SOCKET_TIMEOUT": 5,
                 "RETRY_ON_TIMEOUT": True,
                 "MAX_CONNECTIONS": 20,
+                "IGNORE_EXCEPTIONS": True,
             },
             "KEY_PREFIX": "molek",
         }
