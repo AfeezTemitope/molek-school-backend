@@ -1,1 +1,1 @@
-web: gunicorn molekSchool.wsgi
+gunicorn molekSchool.wsgi --timeout 120 --workers 2

@@ -66,6 +66,106 @@ def get_grade(score):
 
 
 # ==============================================================================
+# HELPER: Parse CSV safely
+# ==============================================================================
+def _parse_csv(request):
+    """Parse CSV from request.FILES['file'], return (rows, error_response)."""
+    if 'file' not in request.FILES:
+        return None, Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+    csv_file = request.FILES['file']
+
+    try:
+        decoded_file = csv_file.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        return None, Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    reader = csv.DictReader(io.StringIO(decoded_file))
+    if reader.fieldnames:
+        reader.fieldnames = [f.strip() for f in reader.fieldnames]
+
+    rows = list(reader)
+    if not rows:
+        return None, Response({'error': 'CSV file is empty'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return rows, None
+
+
+def _get_session_and_term(request):
+    """Extract and validate session/term from request data. Returns (session, term, error_response)."""
+    session_id = request.data.get('session_id') or request.data.get('session')
+    term_id = request.data.get('term_id') or request.data.get('term')
+
+    if not session_id or not term_id:
+        return None, None, Response(
+            {'error': 'Session and term are required'}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        session = AcademicSession.objects.get(id=session_id)
+        term = Term.objects.get(id=term_id)
+    except (AcademicSession.DoesNotExist, Term.DoesNotExist):
+        return None, None, Response(
+            {'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    return session, term, None
+
+
+def _prefetch_students_and_subjects(rows):
+    """
+    Pre-fetch all students and subjects referenced in CSV rows.
+    Returns (students_map, subjects_map) keyed by admission_number and lowercase name.
+    """
+    admission_numbers = set()
+    subject_names = set()
+
+    for row in rows:
+        adm = row.get('admission_number', '').strip().upper()
+        subj = row.get('subject', '').strip()
+        if adm:
+            admission_numbers.add(adm)
+        if subj:
+            subject_names.add(subj)
+
+    students_map = {
+        s.admission_number: s
+        for s in ActiveStudent.objects.filter(
+            admission_number__in=admission_numbers, is_active=True
+        )
+    }
+
+    subjects_map = {}
+    if subject_names:
+        for s in Subject.objects.all():
+            if s.name.lower() in {n.lower() for n in subject_names}:
+                subjects_map[s.name.lower()] = s
+
+    return students_map, subjects_map
+
+
+def _get_or_create_subject(subject_name, subjects_map):
+    """
+    Get subject from cache or create it. Returns (subject, was_created).
+    Mutates subjects_map to cache newly created subjects.
+    """
+    subject = subjects_map.get(subject_name.lower())
+    if subject:
+        return subject, False
+
+    subject, created = Subject.objects.get_or_create(
+        name__iexact=subject_name,
+        defaults={
+            'name': subject_name,
+            'code': subject_name[:3].upper() + '101',
+            'is_active': True,
+        }
+    )
+    subjects_map[subject_name.lower()] = subject
+    return subject, created
+
+
+# ==============================================================================
 # CA SCORE VIEWSET (CA1 + CA2)
 # ==============================================================================
 class CAScoreViewSet(viewsets.ModelViewSet):
@@ -103,79 +203,86 @@ class CAScoreViewSet(viewsets.ModelViewSet):
             admission_number,subject,ca1_score,ca2_score
             MOL/2026/001,Mathematics,12,13
         """
-        if 'file' not in request.FILES:
-            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        session_id = request.data.get('session')
-        term_id = request.data.get('term')
-        
-        if not session_id or not term_id:
-            return Response({'error': 'Session and term are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-            term = Term.objects.get(id=term_id)
-        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-            return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        csv_file = request.FILES['file']
-        
-        try:
-            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
-        except UnicodeDecodeError:
-            return Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        reader = csv.DictReader(io.StringIO(decoded_file))
-        if reader.fieldnames:
-            reader.fieldnames = [f.strip() for f in reader.fieldnames]
-        
+        session, term, err = _get_session_and_term(request)
+        if err:
+            return err
+
+        rows, err = _parse_csv(request)
+        if err:
+            return err
+
+        students_map, subjects_map = _prefetch_students_and_subjects(rows)
+
         created, updated, subjects_created = 0, 0, 0
         errors = []
-        row_num = 1
-        
-        for row in reader:
-            row_num += 1
-            try:
-                admission_number = row.get('admission_number', '').strip().upper()
-                subject_name = row.get('subject', '').strip()
-                ca1_score = Decimal(row.get('ca1_score', '0').strip() or '0')
-                ca2_score = Decimal(row.get('ca2_score', '0').strip() or '0')
-                
-                if not admission_number or not subject_name:
-                    errors.append({'row': row_num, 'error': 'Missing required fields'})
-                    continue
-                
-                if ca1_score > 15 or ca2_score > 15:
-                    errors.append({'row': row_num, 'error': 'CA score exceeds max (15)'})
-                    continue
-                
+        to_create = []
+        to_update = []
+
+        with transaction.atomic():
+            # Pre-fetch existing CA scores for this session/term in one query
+            existing_scores = {
+                (ca.student_id, ca.subject_id): ca
+                for ca in CAScore.objects.filter(
+                    session=session, term=term
+                ).select_for_update()
+            }
+
+            for idx, row in enumerate(rows, start=2):
                 try:
-                    student = ActiveStudent.objects.get(admission_number=admission_number, is_active=True)
-                except ActiveStudent.DoesNotExist:
-                    errors.append({'row': row_num, 'error': f'Student {admission_number} not found'})
-                    continue
-                
-                subject, subj_created = Subject.objects.get_or_create(
-                    name__iexact=subject_name,
-                    defaults={'name': subject_name, 'code': subject_name[:3].upper() + '101', 'is_active': True}
-                )
-                if subj_created:
-                    subjects_created += 1
-                
-                ca_obj, is_new = CAScore.objects.update_or_create(
-                    student=student, subject=subject, session=session, term=term,
-                    defaults={'ca1_score': ca1_score, 'ca2_score': ca2_score, 'uploaded_by': request.user}
-                )
-                
-                created += 1 if is_new else 0
-                updated += 0 if is_new else 1
-                
-            except Exception as e:
-                errors.append({'row': row_num, 'error': str(e)})
-        
-        invalidate_score_cache(session_id, term_id)
+                    admission_number = row.get('admission_number', '').strip().upper()
+                    subject_name = row.get('subject', '').strip()
+                    ca1_score = Decimal(row.get('ca1_score', '0').strip() or '0')
+                    ca2_score = Decimal(row.get('ca2_score', '0').strip() or '0')
+
+                    if not admission_number or not subject_name:
+                        errors.append({'row': idx, 'error': 'Missing required fields'})
+                        continue
+
+                    if ca1_score > 15 or ca2_score > 15:
+                        errors.append({'row': idx, 'error': 'CA score exceeds max (15)'})
+                        continue
+
+                    student = students_map.get(admission_number)
+                    if not student:
+                        errors.append({'row': idx, 'error': f'Student {admission_number} not found'})
+                        continue
+
+                    subject, subj_created = _get_or_create_subject(subject_name, subjects_map)
+                    if subj_created:
+                        subjects_created += 1
+
+                    key = (student.id, subject.id)
+                    existing = existing_scores.get(key)
+
+                    if existing:
+                        existing.ca1_score = ca1_score
+                        existing.ca2_score = ca2_score
+                        existing.uploaded_by = request.user
+                        to_update.append(existing)
+                        updated += 1
+                    else:
+                        new_obj = CAScore(
+                            student=student, subject=subject,
+                            session=session, term=term,
+                            ca1_score=ca1_score, ca2_score=ca2_score,
+                            uploaded_by=request.user
+                        )
+                        to_create.append(new_obj)
+                        # Track in existing_scores to handle duplicate rows in same CSV
+                        existing_scores[key] = new_obj
+                        created += 1
+
+                except Exception as e:
+                    errors.append({'row': idx, 'error': str(e)})
+
+            if to_create:
+                CAScore.objects.bulk_create(to_create)
+            if to_update:
+                CAScore.objects.bulk_update(to_update, ['ca1_score', 'ca2_score', 'uploaded_by'])
+
+        invalidate_score_cache(session.id, term.id)
         logger.info(f"CA scores uploaded: {created} created, {updated} updated by {request.user.username}")
-        
+
         return Response({
             'success': True, 'created': created, 'updated': updated,
             'subjects_created': subjects_created, 'failed': len(errors), 'errors': errors[:10]
@@ -239,93 +346,106 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         - obj_score: RAW score (max 30)
         - Auto-pulls CA1+CA2 from CAScore table
         """
-        if 'file' not in request.FILES:
-            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        session_id = request.data.get('session')
-        term_id = request.data.get('term')
-        
-        if not session_id or not term_id:
-            return Response({'error': 'Session and term are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-            term = Term.objects.get(id=term_id)
-        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-            return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        csv_file = request.FILES['file']
-        
-        try:
-            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
-        except UnicodeDecodeError:
-            return Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        reader = csv.DictReader(io.StringIO(decoded_file))
-        if reader.fieldnames:
-            reader.fieldnames = [f.strip() for f in reader.fieldnames]
-        
+        session, term, err = _get_session_and_term(request)
+        if err:
+            return err
+
+        rows, err = _parse_csv(request)
+        if err:
+            return err
+
+        students_map, subjects_map = _prefetch_students_and_subjects(rows)
+
         created, updated, subjects_created = 0, 0, 0
         missing_ca, errors = [], []
-        row_num = 1
-        
+        to_create = []
+        to_update = []
+
         with transaction.atomic():
-            for row in reader:
-                row_num += 1
+            # Pre-fetch existing exam results and CA scores
+            existing_results = {
+                (r.student_id, r.subject_id): r
+                for r in ExamResult.objects.filter(
+                    session=session, term=term
+                ).select_for_update()
+            }
+
+            ca_scores_map = {
+                (ca.student_id, ca.subject_id): ca
+                for ca in CAScore.objects.filter(session=session, term=term)
+            }
+
+            for idx, row in enumerate(rows, start=2):
                 try:
                     admission_number = row.get('admission_number', '').strip().upper()
                     subject_name = row.get('subject', '').strip()
                     obj_score = Decimal(row.get('obj_score', '0').strip() or '0')
                     total_questions = int(row.get('total_questions', '30').strip() or '30')
-                    
+
                     if not admission_number or not subject_name:
-                        errors.append({'row': row_num, 'error': 'Missing required fields'})
+                        errors.append({'row': idx, 'error': 'Missing required fields'})
                         continue
-                    
+
                     if obj_score > 30:
-                        errors.append({'row': row_num, 'error': 'OBJ score exceeds max (30)'})
+                        errors.append({'row': idx, 'error': 'OBJ score exceeds max (30)'})
                         continue
-                    
-                    try:
-                        student = ActiveStudent.objects.get(admission_number=admission_number, is_active=True)
-                    except ActiveStudent.DoesNotExist:
-                        errors.append({'row': row_num, 'error': f'Student {admission_number} not found'})
+
+                    student = students_map.get(admission_number)
+                    if not student:
+                        errors.append({'row': idx, 'error': f'Student {admission_number} not found'})
                         continue
-                    
-                    subject, subj_created = Subject.objects.get_or_create(
-                        name__iexact=subject_name,
-                        defaults={'name': subject_name, 'code': subject_name[:3].upper() + '101', 'is_active': True}
-                    )
+
+                    subject, subj_created = _get_or_create_subject(subject_name, subjects_map)
                     if subj_created:
                         subjects_created += 1
-                    
-                    # Get CA scores
+
+                    # Get CA scores from pre-fetched map
                     ca1_score, ca2_score = Decimal('0'), Decimal('0')
-                    try:
-                        ca_obj = CAScore.objects.get(student=student, subject=subject, session=session, term=term)
+                    ca_key = (student.id, subject.id)
+                    ca_obj = ca_scores_map.get(ca_key)
+                    if ca_obj:
                         ca1_score = ca_obj.ca1_score or Decimal('0')
                         ca2_score = ca_obj.ca2_score or Decimal('0')
-                    except CAScore.DoesNotExist:
+                    else:
                         missing_ca.append({'admission_number': admission_number, 'subject': subject_name})
-                    
-                    result, is_created = ExamResult.objects.update_or_create(
-                        student=student, subject=subject, session=session, term=term,
-                        defaults={
-                            'ca1_score': ca1_score, 'ca2_score': ca2_score,
-                            'obj_score': obj_score, 'total_obj_questions': total_questions,
-                            'uploaded_by': request.user
-                        }
-                    )
-                    
-                    created += 1 if is_created else 0
-                    updated += 0 if is_created else 1
-                    
+
+                    key = (student.id, subject.id)
+                    existing = existing_results.get(key)
+
+                    if existing:
+                        existing.ca1_score = ca1_score
+                        existing.ca2_score = ca2_score
+                        existing.obj_score = obj_score
+                        existing.total_obj_questions = total_questions
+                        existing.uploaded_by = request.user
+                        to_update.append(existing)
+                        updated += 1
+                    else:
+                        new_obj = ExamResult(
+                            student=student, subject=subject,
+                            session=session, term=term,
+                            ca1_score=ca1_score, ca2_score=ca2_score,
+                            obj_score=obj_score, total_obj_questions=total_questions,
+                            uploaded_by=request.user
+                        )
+                        to_create.append(new_obj)
+                        existing_results[key] = new_obj
+                        created += 1
+
                 except Exception as e:
-                    errors.append({'row': row_num, 'error': str(e)})
-        
+                    errors.append({'row': idx, 'error': str(e)})
+
+            if to_create:
+                ExamResult.objects.bulk_create(to_create)
+            if to_update:
+                ExamResult.objects.bulk_update(
+                    to_update,
+                    ['ca1_score', 'ca2_score', 'obj_score', 'total_obj_questions', 'uploaded_by']
+                )
+
         _calculate_class_positions(session, term)
-        invalidate_score_cache(session_id, term_id)
-        
+        invalidate_score_cache(session.id, term.id)
+
         return Response({
             'success': True, 'created': created, 'updated': updated,
             'subjects_created': subjects_created, 'missing_ca_scores': missing_ca[:10],
@@ -343,94 +463,94 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         
         - theory_score: max 40
         """
-        if 'file' not in request.FILES:
-            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        session_id = request.data.get('session')
-        term_id = request.data.get('term')
-        
-        if not session_id or not term_id:
-            return Response({'error': 'Session and term are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-            term = Term.objects.get(id=term_id)
-        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-            return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        csv_file = request.FILES['file']
-        
-        try:
-            decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
-        except UnicodeDecodeError:
-            return Response({'error': 'Invalid file encoding. Use UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        reader = csv.DictReader(io.StringIO(decoded_file))
-        if reader.fieldnames:
-            reader.fieldnames = [f.strip() for f in reader.fieldnames]
-        
+        session, term, err = _get_session_and_term(request)
+        if err:
+            return err
+
+        rows, err = _parse_csv(request)
+        if err:
+            return err
+
+        students_map, subjects_map = _prefetch_students_and_subjects(rows)
+
         created, updated, subjects_created = 0, 0, 0
         errors = []
-        row_num = 1
-        
+        to_create = []
+        to_update = []
+
         with transaction.atomic():
-            for row in reader:
-                row_num += 1
+            existing_results = {
+                (r.student_id, r.subject_id): r
+                for r in ExamResult.objects.filter(
+                    session=session, term=term
+                ).select_for_update()
+            }
+
+            ca_scores_map = {
+                (ca.student_id, ca.subject_id): ca
+                for ca in CAScore.objects.filter(session=session, term=term)
+            }
+
+            for idx, row in enumerate(rows, start=2):
                 try:
                     admission_number = row.get('admission_number', '').strip().upper()
                     subject_name = row.get('subject', '').strip()
                     theory_score = Decimal(row.get('theory_score', '0').strip() or '0')
-                    
+
                     if not admission_number or not subject_name:
-                        errors.append({'row': row_num, 'error': 'Missing required fields'})
+                        errors.append({'row': idx, 'error': 'Missing required fields'})
                         continue
-                    
+
                     if theory_score > 40:
-                        errors.append({'row': row_num, 'error': 'Theory score exceeds max (40)'})
+                        errors.append({'row': idx, 'error': 'Theory score exceeds max (40)'})
                         continue
-                    
-                    try:
-                        student = ActiveStudent.objects.get(admission_number=admission_number, is_active=True)
-                    except ActiveStudent.DoesNotExist:
-                        errors.append({'row': row_num, 'error': f'Student {admission_number} not found'})
+
+                    student = students_map.get(admission_number)
+                    if not student:
+                        errors.append({'row': idx, 'error': f'Student {admission_number} not found'})
                         continue
-                    
-                    subject, subj_created = Subject.objects.get_or_create(
-                        name__iexact=subject_name,
-                        defaults={'name': subject_name, 'code': subject_name[:3].upper() + '101', 'is_active': True}
-                    )
+
+                    subject, subj_created = _get_or_create_subject(subject_name, subjects_map)
                     if subj_created:
                         subjects_created += 1
-                    
-                    try:
-                        result = ExamResult.objects.get(student=student, subject=subject, session=session, term=term)
-                        result.theory_score = theory_score
-                        result.save()
+
+                    key = (student.id, subject.id)
+                    existing = existing_results.get(key)
+
+                    if existing:
+                        existing.theory_score = theory_score
+                        to_update.append(existing)
                         updated += 1
-                    except ExamResult.DoesNotExist:
+                    else:
                         # Get CA scores if available
                         ca1_score, ca2_score = Decimal('0'), Decimal('0')
-                        try:
-                            ca_obj = CAScore.objects.get(student=student, subject=subject, session=session, term=term)
+                        ca_obj = ca_scores_map.get(key)
+                        if ca_obj:
                             ca1_score = ca_obj.ca1_score or Decimal('0')
                             ca2_score = ca_obj.ca2_score or Decimal('0')
-                        except CAScore.DoesNotExist:
-                            pass
-                        
-                        ExamResult.objects.create(
-                            student=student, subject=subject, session=session, term=term,
+
+                        new_obj = ExamResult(
+                            student=student, subject=subject,
+                            session=session, term=term,
                             ca1_score=ca1_score, ca2_score=ca2_score,
                             obj_score=Decimal('0'), theory_score=theory_score,
                             uploaded_by=request.user
                         )
+                        to_create.append(new_obj)
+                        existing_results[key] = new_obj
                         created += 1
-                        
+
                 except Exception as e:
-                    errors.append({'row': row_num, 'error': str(e)})
-        
+                    errors.append({'row': idx, 'error': str(e)})
+
+            if to_create:
+                ExamResult.objects.bulk_create(to_create)
+            if to_update:
+                ExamResult.objects.bulk_update(to_update, ['theory_score'])
+
         _calculate_class_positions(session, term)
-        invalidate_score_cache(session_id, term_id)
-        
+        invalidate_score_cache(session.id, term.id)
+
         return Response({
             'success': True, 'created': created, 'updated': updated,
             'subjects_created': subjects_created, 'failed': len(errors), 'errors': errors[:10]
@@ -439,22 +559,14 @@ class ExamResultViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='recalculate-positions')
     def recalculate_positions(self, request):
         """Recalculate positions for all results in a session/term."""
-        session_id = request.data.get('session')
-        term_id = request.data.get('term')
+        session, term, err = _get_session_and_term(request)
+        if err:
+            return err
+
         class_level_id = request.data.get('class_level')
-        
-        if not session_id or not term_id:
-            return Response({'error': 'Session and term are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-            term = Term.objects.get(id=term_id)
-        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-            return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-        
         subjects_processed = _calculate_class_positions(session, term, class_level_id)
-        invalidate_score_cache(session_id, term_id)
-        
+        invalidate_score_cache(session.id, term.id)
+
         return Response({
             'success': True, 'message': 'Positions recalculated',
             'subjects_processed': subjects_processed
@@ -463,36 +575,37 @@ class ExamResultViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='sync-ca-scores')
     def sync_ca_scores(self, request):
         """Sync CA1+CA2 scores from CAScore table to ExamResult table."""
-        session_id = request.data.get('session')
-        term_id = request.data.get('term')
-        
-        if not session_id or not term_id:
-            return Response({'error': 'Session and term are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            session = AcademicSession.objects.get(id=session_id)
-            term = Term.objects.get(id=term_id)
-        except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-            return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-        
+        session, term, err = _get_session_and_term(request)
+        if err:
+            return err
+
         updated = 0
-        ca_scores = CAScore.objects.filter(session=session, term=term)
-        
+
         with transaction.atomic():
-            for ca in ca_scores:
-                try:
-                    result = ExamResult.objects.get(
-                        student=ca.student, subject=ca.subject, session=session, term=term
-                    )
+            ca_scores_map = {
+                (ca.student_id, ca.subject_id): ca
+                for ca in CAScore.objects.filter(session=session, term=term)
+            }
+
+            results = list(
+                ExamResult.objects.filter(session=session, term=term).select_for_update()
+            )
+
+            to_update = []
+            for result in results:
+                key = (result.student_id, result.subject_id)
+                ca = ca_scores_map.get(key)
+                if ca:
                     result.ca1_score = ca.ca1_score
                     result.ca2_score = ca.ca2_score
-                    result.save()
-                    updated += 1
-                except ExamResult.DoesNotExist:
-                    pass
-        
-        invalidate_score_cache(session_id, term_id)
-        
+                    to_update.append(result)
+
+            if to_update:
+                ExamResult.objects.bulk_update(to_update, ['ca1_score', 'ca2_score'])
+                updated = len(to_update)
+
+        invalidate_score_cache(session.id, term.id)
+
         return Response({'success': True, 'updated': updated})
     
     @action(detail=False, methods=['get'], url_path='export-template-obj')
@@ -534,86 +647,88 @@ def bulk_upload_ca_scores(request):
     
     CSV Format: admission_number, subject, ca1_score, ca2_score
     """
-    if 'file' not in request.FILES:
-        return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    csv_file = request.FILES['file']
-    session_id = request.data.get('session_id') or request.data.get('session')
-    term_id = request.data.get('term_id') or request.data.get('term')
-    
-    if not session_id or not term_id:
-        return Response({'error': 'session_id and term_id are required'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        session = AcademicSession.objects.get(id=session_id)
-        term = Term.objects.get(id=term_id)
-    except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-        return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
-        reader = csv.DictReader(io.StringIO(decoded_file))
-        if reader.fieldnames:
-            reader.fieldnames = [f.strip() for f in reader.fieldnames]
-        rows = list(reader)
-    except Exception as e:
-        return Response({'error': f'Failed to parse CSV: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    if not rows:
-        return Response({'error': 'CSV file is empty'}, status=status.HTTP_400_BAD_REQUEST)
-    
+    session, term, err = _get_session_and_term(request)
+    if err:
+        return err
+
+    rows, err = _parse_csv(request)
+    if err:
+        return err
+
+    students_map, subjects_map = _prefetch_students_and_subjects(rows)
+
     created_count, updated_count, subjects_created = 0, 0, 0
     errors = []
-    
+    to_create = []
+    to_update = []
+
     with transaction.atomic():
+        existing_scores = {
+            (ca.student_id, ca.subject_id): ca
+            for ca in CAScore.objects.filter(
+                session=session, term=term
+            ).select_for_update()
+        }
+
         for idx, row in enumerate(rows, start=2):
             try:
                 admission_number = row.get('admission_number', '').strip().upper()
                 subject_name = row.get('subject', '').strip()
                 ca1_score = Decimal(row.get('ca1_score', '0').strip() or '0')
                 ca2_score = Decimal(row.get('ca2_score', '0').strip() or '0')
-                
+
                 if not admission_number or not subject_name:
                     errors.append({'row': idx, 'error': 'Missing required fields'})
                     continue
-                
+
                 if ca1_score > 15:
                     errors.append({'row': idx, 'admission_number': admission_number, 'error': 'CA1 score exceeds 15'})
                     continue
-                
+
                 if ca2_score > 15:
                     errors.append({'row': idx, 'admission_number': admission_number, 'error': 'CA2 score exceeds 15'})
                     continue
-                
-                try:
-                    student = ActiveStudent.objects.get(admission_number=admission_number)
-                except ActiveStudent.DoesNotExist:
+
+                student = students_map.get(admission_number)
+                if not student:
                     errors.append({'row': idx, 'admission_number': admission_number, 'error': 'Student not found'})
                     continue
-                
-                subject, subj_created = Subject.objects.get_or_create(
-                    name__iexact=subject_name,
-                    defaults={'name': subject_name, 'code': subject_name[:3].upper() + '101', 'is_active': True}
-                )
+
+                subject, subj_created = _get_or_create_subject(subject_name, subjects_map)
                 if subj_created:
                     subjects_created += 1
-                
-                ca_obj, created = CAScore.objects.update_or_create(
-                    student=student, subject=subject, session=session, term=term,
-                    defaults={'ca1_score': ca1_score, 'ca2_score': ca2_score, 'uploaded_by': request.user}
-                )
-                
-                if created:
-                    created_count += 1
-                else:
+
+                key = (student.id, subject.id)
+                existing = existing_scores.get(key)
+
+                if existing:
+                    existing.ca1_score = ca1_score
+                    existing.ca2_score = ca2_score
+                    existing.uploaded_by = request.user
+                    to_update.append(existing)
                     updated_count += 1
-                    
+                else:
+                    new_obj = CAScore(
+                        student=student, subject=subject,
+                        session=session, term=term,
+                        ca1_score=ca1_score, ca2_score=ca2_score,
+                        uploaded_by=request.user
+                    )
+                    to_create.append(new_obj)
+                    existing_scores[key] = new_obj
+                    created_count += 1
+
             except Exception as e:
                 errors.append({'row': idx, 'admission_number': row.get('admission_number', 'N/A'), 'error': str(e)})
-    
-    invalidate_score_cache(session_id, term_id)
+
+        if to_create:
+            CAScore.objects.bulk_create(to_create)
+        if to_update:
+            CAScore.objects.bulk_update(to_update, ['ca1_score', 'ca2_score', 'uploaded_by'])
+
+    invalidate_score_cache(session.id, term.id)
     logger.info(f"CA scores uploaded: {created_count} created, {updated_count} updated by {request.user.username}")
-    
+
     return Response({
         'success': True,
         'message': f'Processed {len(rows)} CA scores',
@@ -637,44 +752,40 @@ def bulk_upload_exam_results(request):
     - obj_score max = 30
     - theory_score max = 40
     """
-    if 'file' not in request.FILES:
-        return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    csv_file = request.FILES['file']
-    session_id = request.data.get('session_id') or request.data.get('session')
-    term_id = request.data.get('term_id') or request.data.get('term')
-    
-    if not session_id or not term_id:
-        return Response({'error': 'session_id and term_id are required'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        session = AcademicSession.objects.get(id=session_id)
-        term = Term.objects.get(id=term_id)
-    except (AcademicSession.DoesNotExist, Term.DoesNotExist):
-        return Response({'error': 'Invalid session or term'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        decoded_file = csv_file.read().decode('utf-8-sig')  # utf-8-sig strips BOM
-        reader = csv.DictReader(io.StringIO(decoded_file))
-        if reader.fieldnames:
-            reader.fieldnames = [f.strip() for f in reader.fieldnames]
-        rows = list(reader)
-    except Exception as e:
-        return Response({'error': f'Failed to parse CSV: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    if not rows:
-        return Response({'error': 'CSV file is empty'}, status=status.HTTP_400_BAD_REQUEST)
-    
+    session, term, err = _get_session_and_term(request)
+    if err:
+        return err
+
+    rows, err = _parse_csv(request)
+    if err:
+        return err
+
+    students_map, subjects_map = _prefetch_students_and_subjects(rows)
+
     created_count, updated_count, subjects_created = 0, 0, 0
     missing_ca_scores = []
     errors = []
-    
+    to_create = []
+    to_update = []
+
     with transaction.atomic():
+        existing_results = {
+            (r.student_id, r.subject_id): r
+            for r in ExamResult.objects.filter(
+                session=session, term=term
+            ).select_for_update()
+        }
+
+        ca_scores_map = {
+            (ca.student_id, ca.subject_id): ca
+            for ca in CAScore.objects.filter(session=session, term=term)
+        }
+
         for idx, row in enumerate(rows, start=2):
             try:
                 admission_number = row.get('admission_number', '').strip().upper()
                 subject_name = row.get('subject', '').strip()
-                
+
                 # Support both new format (obj_score, theory_score) and legacy (exam_score)
                 if 'obj_score' in row:
                     obj_score = Decimal(row.get('obj_score', '0').strip() or '0')
@@ -682,67 +793,78 @@ def bulk_upload_exam_results(request):
                 else:
                     # Legacy format: exam_score was scaled to 70, now we need to split
                     exam_score = Decimal(row.get('exam_score', '0').strip() or '0')
-                    # Assume 30/40 split for legacy data
-                    obj_score = min(exam_score * Decimal('0.43'), Decimal('30'))  # ~30% of 70
-                    theory_score = min(exam_score * Decimal('0.57'), Decimal('40'))  # ~40% of 70
-                
+                    obj_score = min(exam_score * Decimal('0.43'), Decimal('30'))
+                    theory_score = min(exam_score * Decimal('0.57'), Decimal('40'))
+
                 if not admission_number or not subject_name:
                     errors.append({'row': idx, 'error': 'Missing required fields'})
                     continue
-                
+
                 if obj_score > 30:
                     errors.append({'row': idx, 'admission_number': admission_number, 'error': 'OBJ score exceeds 30'})
                     continue
-                
+
                 if theory_score > 40:
                     errors.append({'row': idx, 'admission_number': admission_number, 'error': 'Theory score exceeds 40'})
                     continue
-                
-                try:
-                    student = ActiveStudent.objects.get(admission_number=admission_number)
-                except ActiveStudent.DoesNotExist:
+
+                student = students_map.get(admission_number)
+                if not student:
                     errors.append({'row': idx, 'admission_number': admission_number, 'error': 'Student not found'})
                     continue
-                
-                subject, subj_created = Subject.objects.get_or_create(
-                    name__iexact=subject_name,
-                    defaults={'name': subject_name, 'code': subject_name[:3].upper() + '101', 'is_active': True}
-                )
+
+                subject, subj_created = _get_or_create_subject(subject_name, subjects_map)
                 if subj_created:
                     subjects_created += 1
-                
-                # Get CA scores
+
+                # Get CA scores from pre-fetched map
                 ca1_score, ca2_score = Decimal('0'), Decimal('0')
-                try:
-                    ca_obj = CAScore.objects.get(student=student, subject=subject, session=session, term=term)
+                ca_key = (student.id, subject.id)
+                ca_obj = ca_scores_map.get(ca_key)
+                if ca_obj:
                     ca1_score = ca_obj.ca1_score or Decimal('0')
                     ca2_score = ca_obj.ca2_score or Decimal('0')
-                except CAScore.DoesNotExist:
-                    missing_ca_scores.append({'admission_number': admission_number, 'subject': subject_name})
-                
-                result, created = ExamResult.objects.update_or_create(
-                    student=student, subject=subject, session=session, term=term,
-                    defaults={
-                        'ca1_score': ca1_score,
-                        'ca2_score': ca2_score,
-                        'obj_score': obj_score,
-                        'theory_score': theory_score,
-                        'uploaded_by': request.user
-                    }
-                )
-                
-                if created:
-                    created_count += 1
                 else:
+                    missing_ca_scores.append({'admission_number': admission_number, 'subject': subject_name})
+
+                key = (student.id, subject.id)
+                existing = existing_results.get(key)
+
+                if existing:
+                    existing.ca1_score = ca1_score
+                    existing.ca2_score = ca2_score
+                    existing.obj_score = obj_score
+                    existing.theory_score = theory_score
+                    existing.uploaded_by = request.user
+                    to_update.append(existing)
                     updated_count += 1
-                    
+                else:
+                    new_obj = ExamResult(
+                        student=student, subject=subject,
+                        session=session, term=term,
+                        ca1_score=ca1_score, ca2_score=ca2_score,
+                        obj_score=obj_score, theory_score=theory_score,
+                        uploaded_by=request.user
+                    )
+                    to_create.append(new_obj)
+                    existing_results[key] = new_obj
+                    created_count += 1
+
             except Exception as e:
                 errors.append({'row': idx, 'admission_number': row.get('admission_number', 'N/A'), 'error': str(e)})
-    
+
+        if to_create:
+            ExamResult.objects.bulk_create(to_create)
+        if to_update:
+            ExamResult.objects.bulk_update(
+                to_update,
+                ['ca1_score', 'ca2_score', 'obj_score', 'theory_score', 'uploaded_by']
+            )
+
     _calculate_class_positions(session, term)
-    invalidate_score_cache(session_id, term_id)
+    invalidate_score_cache(session.id, term.id)
     logger.info(f"Exam results imported: {created_count} created, {updated_count} updated by {request.user.username}")
-    
+
     return Response({
         'success': True,
         'message': f'Processed {len(rows)} results',
