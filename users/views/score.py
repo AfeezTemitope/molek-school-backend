@@ -334,6 +334,82 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         
         return queryset
     
+    def list(self, request, *args, **kwargs):
+        """
+        List exam results with brought-forward term totals and cumulative averages.
+        
+        Enriches each result with:
+        - first_term_total: Student's total for this subject in 1st term
+        - second_term_total: Student's total for this subject in 2nd term
+        - third_term_total: Student's total for this subject in 3rd term
+        - cumulative_score: Average of available term totals
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        session_id = request.query_params.get('session')
+        
+        page = self.paginate_queryset(queryset)
+        result_objects = list(page) if page is not None else list(queryset)
+        
+        serializer = self.get_serializer(result_objects, many=True)
+        data = serializer.data
+        
+        # Enrich with B/F term totals and cumulative averages
+        if session_id and result_objects:
+            self._enrich_with_bf_data(data, result_objects, session_id)
+        
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+    
+    def _enrich_with_bf_data(self, serialized_data, result_objects, session_id):
+        """
+        Add brought-forward term totals and cumulative scores.
+        
+        For each result, looks up the same student+subject across all terms
+        in the session to populate B/F columns and cumulative average.
+        Uses a single DB query for all lookups.
+        """
+        terms = list(Term.objects.filter(session_id=session_id).order_by('id'))
+        if not terms:
+            return
+        
+        # Collect unique student+subject combos from current page
+        student_ids = {r.student_id for r in result_objects}
+        subject_ids = {r.subject_id for r in result_objects}
+        
+        # Single query: all scores for these combos across all terms in the session
+        all_scores = ExamResult.objects.filter(
+            session_id=session_id,
+            student_id__in=student_ids,
+            subject_id__in=subject_ids,
+        ).values_list('student_id', 'subject_id', 'term_id', 'total_score')
+        
+        # Build lookup: (student_id, subject_id, term_id) -> total_score
+        score_lookup = {}
+        for sid, subid, tid, total in all_scores:
+            score_lookup[(sid, subid, tid)] = float(total) if total is not None else None
+        
+        # Enrich each serialized result (matched by index with result_objects)
+        for i, item in enumerate(serialized_data):
+            obj = result_objects[i]
+            
+            term_totals = []
+            for tidx, term in enumerate(terms):
+                score = score_lookup.get((obj.student_id, obj.subject_id, term.id))
+                if tidx == 0:
+                    item['first_term_total'] = score
+                elif tidx == 1:
+                    item['second_term_total'] = score
+                elif tidx == 2:
+                    item['third_term_total'] = score
+                if score is not None:
+                    term_totals.append(score)
+            
+            item['cumulative_score'] = (
+                round(sum(term_totals) / len(term_totals), 2)
+                if term_totals else None
+            )
+    
     @action(detail=False, methods=['post'], url_path='import-obj-scores')
     def import_obj_scores(self, request):
         """
