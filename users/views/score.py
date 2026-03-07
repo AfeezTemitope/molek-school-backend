@@ -394,14 +394,17 @@ class ExamResultViewSet(viewsets.ModelViewSet):
             obj = result_objects[i]
             
             term_totals = []
-            for tidx, term in enumerate(terms):
+            for term in terms:
                 score = score_lookup.get((obj.student_id, obj.subject_id, term.id))
-                if tidx == 0:
+                term_name = term.name.lower().strip()
+                
+                if 'first' in term_name:
                     item['first_term_total'] = score
-                elif tidx == 1:
+                elif 'second' in term_name:
                     item['second_term_total'] = score
-                elif tidx == 2:
+                elif 'third' in term_name:
                     item['third_term_total'] = score
+                
                 if score is not None:
                     term_totals.append(score)
             
